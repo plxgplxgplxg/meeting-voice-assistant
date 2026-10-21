@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: Meeting Intelligence System API
+  version: 1.0.0
+  description: OpenAPI specification for the meeting voice assistant backend.
+paths:
+  /api/v1/meetings:
+    get:
+      summary: Lấy danh sách các cuộc họp
+      responses:
+        '200':
+          description: Thành công
+    post:
+      summary: Tạo cuộc họp mới
+      responses:
+        '201':
+          description: Tạo thành công
+  /api/v1/meetings/{id}:
+    get:
+      summary: Lấy thông tin chi tiết cuộc họp
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chi tiết cuộc họp
+  /api/v1/meetings/{id}/chat:
+    post:
+      summary: Hỏi đáp RAG về cuộc họp
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Câu trả lời kèm trích dẫn
