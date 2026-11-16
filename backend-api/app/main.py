@@ -9,8 +9,16 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from sqlalchemy import text
+import structlog
+
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.database import Base, async_session_factory, engine
+import app.models  # noqa: F401
+from app.services.plan_service import PlanService
+
+logger = structlog.get_logger(__name__)
 
 
 class DomainError(Exception):
@@ -33,9 +41,26 @@ class AppState(TypedDict):
     http_client: httpx.AsyncClient
 
 
+async def init_database() -> None:
+    """Initialize database extensions, schema tables, and seed initial plans."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            await conn.run_sync(Base.metadata.create_all)
+
+        async with async_session_factory() as session:
+            plan_service = PlanService(session)
+            await plan_service.seed_default_plans_if_empty()
+            await session.commit()
+        logger.info("database_initialization_success")
+    except Exception as exc:
+        logger.warning("database_initialization_notice", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[AppState]:
     """Manage application startup and shutdown lifespan."""
+    await init_database()
     http_client = httpx.AsyncClient(timeout=30.0)
     yield {"http_client": http_client}
     await http_client.aclose()

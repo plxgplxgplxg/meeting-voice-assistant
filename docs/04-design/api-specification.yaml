@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Meeting Intelligence System API
+  title: Meeting Transcription, Summarization, and QA System API
   version: 1.0.0
-  description: OpenAPI specification for the meeting voice assistant backend.
+  description: OpenAPI specification for the meeting transcription, summarization, and question answering backend.
 paths:
   /api/v1/meetings:
     get:

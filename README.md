@@ -1,4 +1,4 @@
-# Meeting Intelligence System (Trợ Lý Cuộc Họp AI)
+# Hệ thống phiên âm, tóm tắt và hỏi đáp nội dung cuộc họp (Meeting Transcription, Summarization, and Question Answering System)
 
 Hệ thống phiên âm, tách người nói (diarization), tóm tắt và hỏi đáp nội dung cuộc họp có trích dẫn nguồn.
 Đồ án Tốt nghiệp Cử nhân CNTT - Trường CNTT&TT, Đại học Bách Khoa Hà Nội.

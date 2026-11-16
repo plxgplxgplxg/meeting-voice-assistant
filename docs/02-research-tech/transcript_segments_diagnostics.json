@@ -1,0 +1,11 @@
+[
+  {
+    "start_ms": 45680,
+    "end_ms": 45980,
+    "action": "drop_metadata_hallucination",
+    "compression_ratio": 1.0606060606060606,
+    "avg_logprob": -0.5336146205663681,
+    "no_speech_prob": 1.6514324130412206e-08,
+    "duration_mismatch": true
+  }
+]

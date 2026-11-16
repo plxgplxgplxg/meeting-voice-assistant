@@ -40,9 +40,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/meeting_intelligence
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
       - REDIS_URL=redis://redis:6379/0
       - AI_SERVICE_URL=http://ai-service:8001
+      - SECRET_KEY=${SECRET_KEY:-09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7}
+      - SEPAY_BANK_CODE=${SEPAY_BANK_CODE:-MBBank}
+      - SEPAY_ACCOUNT_NUMBER=${SEPAY_ACCOUNT_NUMBER:-0987654321}
+      - SEPAY_ACCOUNT_NAME=${SEPAY_ACCOUNT_NAME:-NGUYEN PHUONG LINH}
+      - SEPAY_WEBHOOK_API_KEY=${SEPAY_WEBHOOK_API_KEY:-sepay_secret_key_demo}
+      - STORAGE_ROOT=/tmp/meeting_storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +56,30 @@ services:
         condition: service_healthy
     volumes:
       - ./backend-api:/app
+      - meeting_storage:/tmp/meeting_storage
+
+  celery-worker:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: meeting_celery_worker
+    restart: always
+    command: celery -A app.workers.celery_worker.celery_app worker --loglevel=info -c 2
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
+      - REDIS_URL=redis://redis:6379/0
+      - AI_SERVICE_URL=http://ai-service:8001
+      - STORAGE_ROOT=/tmp/meeting_storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-api:
+        condition: service_started
+    volumes:
+      - ./backend-api:/app
+      - meeting_storage:/tmp/meeting_storage
 
   ai-service:
     build:
@@ -60,8 +90,13 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/meeting_intelligence
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
       - REDIS_URL=redis://redis:6379/0
+      - GLADIA_API_KEY=${GLADIA_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - AUDIO_PIPELINE_ENGINE=${AUDIO_PIPELINE_ENGINE:-gladia}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +104,7 @@ services:
         condition: service_healthy
     volumes:
       - ./ai-service:/app
+      - meeting_storage:/tmp/meeting_storage
 
   frontend:
     build:
@@ -79,7 +115,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_BACKEND_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_BACKEND_API_URL=${NEXT_PUBLIC_BACKEND_API_URL:-http://localhost:8000}
     depends_on:
       - backend-api
     volumes:
@@ -90,3 +126,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  meeting_storage:

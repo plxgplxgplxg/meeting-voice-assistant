@@ -1,12 +1,36 @@
 from typing import Any
+import structlog
+
+from app.core.config import ai_settings
+from app.pipelines.gladia import GladiaAudioPipeline
+from app.pipelines.protocols import AudioProcessorProtocol
+
+logger = structlog.get_logger(__name__)
 
 
 class WhisperASRPipeline:
-    """Transcription pipeline wrapping Faster-Whisper."""
+    """ASR transcription pipeline.
 
-    def __init__(self, model_size: str = "base", device: str = "cpu") -> None:
+    In API-first mode, delegates to an AudioProcessorProtocol implementation (default GladiaAudioPipeline).
+    """
+
+    def __init__(
+        self,
+        model_size: str = "base",
+        device: str = "cpu",
+        processor: AudioProcessorProtocol | None = None,
+    ) -> None:
+        """Initialize WhisperASRPipeline with an injected audio processor.
+
+        Args:
+            model_size: Whisper model size tag.
+            device: Computing device ('cpu' or 'cuda').
+            processor: Concrete audio processor instance implementing AudioProcessorProtocol.
+        """
         self.model_size = model_size
         self.device = device
+        self.processor = processor or GladiaAudioPipeline()
+        self.gladia_pipeline = self.processor
 
     async def transcribe(
         self, audio_path: str, language: str = "vi"
@@ -20,10 +44,5 @@ class WhisperASRPipeline:
         Returns:
             List of transcript segments containing text and timestamps.
         """
-        return [
-            {
-                "start": 0.0,
-                "end": 3.0,
-                "text": "Xin chao cac ban, chung ta bat dau cuoc hop.",
-            }
-        ]
+        logger.info("transcribing_audio", path=audio_path, language=language)
+        return await self.processor.process_audio(audio_path, language=language)
