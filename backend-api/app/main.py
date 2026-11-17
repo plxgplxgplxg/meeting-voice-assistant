@@ -12,11 +12,14 @@ from starlette.responses import Response
 
 import app.models  # noqa: F401
 from app.api.error_handlers import register_exception_handlers
+from app.api.v1.endpoints import internal_agent
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import async_session_factory
+from app.core.logging import configure_logging
 from app.services.billing.plan_service import PlanService
 
+configure_logging(json_logs=settings.is_production)
 logger = structlog.get_logger(__name__)
 
 
@@ -91,6 +94,7 @@ app.add_middleware(
 
 register_exception_handlers(app)
 app.include_router(api_router)
+app.include_router(internal_agent.router, include_in_schema=False)
 
 
 @app.get("/health", tags=["Health"])

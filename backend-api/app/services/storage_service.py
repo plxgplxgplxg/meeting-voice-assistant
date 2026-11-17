@@ -95,6 +95,22 @@ class StorageService:
             raise
         return key, total
 
+    async def save_bytes(self, key: str, data: bytes) -> int:
+        """Write generated content (artifacts) under a storage key.
+
+        Args:
+            key: Relative storage key.
+            data: File content.
+
+        Returns:
+            Number of bytes written.
+        """
+        target = self.resolve(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(target, "wb") as out_file:
+            await out_file.write(data)
+        return len(data)
+
     def read_head(self, key: str, size: int = 64) -> bytes:
         """Read the first bytes of a stored file for content sniffing."""
         with open(self.resolve(key), "rb") as handle:

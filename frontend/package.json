@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-virtual": "^3.14.24",
     "clsx": "^2.1.1",
     "lucide-react": "^0.436.0",

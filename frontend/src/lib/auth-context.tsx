@@ -1,27 +1,11 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import {
-  AUTH_EXPIRED_EVENT,
-  clearTokens,
-  fetchApi,
-  storeTokens,
-} from "./api";
+import type { User } from "@/types/api";
+import { AUTH_EXPIRED_EVENT, clearTokens, storeTokens } from "./api";
+import { getCurrentUser, loginRequest, registerRequest } from "./api/auth";
 
-export interface User {
-  id: string;
-  email: string;
-  full_name: string;
-  role: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface AuthTokens {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-}
+export type { User };
 
 interface AuthContextType {
   user: User | null;
@@ -47,8 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const userData = await fetchApi<User>("/auth/me");
-      setUser(userData);
+      setUser(await getCurrentUser());
     } catch {
       clearTokens();
       setUser(null);
@@ -68,15 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const tokens = await fetchApi<AuthTokens>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-
-    storeTokens(tokens);
-
-    const userData = await fetchApi<User>("/auth/me");
-    setUser(userData);
+    storeTokens(await loginRequest(email, password));
+    setUser(await getCurrentUser());
   };
 
   const register = async (
@@ -84,13 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fullName: string,
     password: string
   ) => {
-    const result = await fetchApi<{ user: User; tokens: AuthTokens }>(
-      "/auth/register",
-      {
-        method: "POST",
-        body: JSON.stringify({ email, full_name: fullName, password }),
-      }
-    );
+    const result = await registerRequest(email, fullName, password);
 
     storeTokens(result.tokens);
     setUser(result.user);

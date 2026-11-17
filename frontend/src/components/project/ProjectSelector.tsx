@@ -1,17 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Folder, ChevronDown, Plus, Users, X, Check, Shield } from "lucide-react";
-import { fetchApi } from "@/lib/api";
+import React, { useState } from "react";
+import { Folder, ChevronDown, Plus, X, Check, AlertCircle } from "lucide-react";
+import { useCreateProject, useProjects } from "@/hooks/useProjects";
+import { getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-
-export interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  owner_id: string;
-  created_at: string;
-}
+import type { Project } from "@/types/api";
 
 interface ProjectSelectorProps {
   selectedProjectId: string | null;
@@ -23,54 +17,41 @@ export function ProjectSelector({
   onSelectProject,
 }: ProjectSelectorProps) {
   const { user } = useAuth();
-  const [projects, setProjects] = useState<Project[]>([]);
+  const projectsQuery = useProjects();
+  const createProject = useCreateProject();
   const [isOpen, setIsOpen] = useState(false);
 
   // Create Project Modal
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchProjects = async () => {
-    if (!user) return;
-    try {
-      const data = await fetchApi<Project[]>("/projects");
-      setProjects(data);
-    } catch {
-      setProjects([]);
-    }
-  };
-
-  useEffect(() => {
-    fetchProjects();
-  }, [user]);
-
+  const projects = projectsQuery.data ?? [];
   const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
 
-  const handleCreateProject = async (e: React.FormEvent) => {
+  const handleCreateProject = (e: React.FormEvent): void => {
     e.preventDefault();
     if (!newProjectName.trim()) return;
 
-    setIsSubmitting(true);
-    try {
-      const created = await fetchApi<Project>("/projects", {
-        method: "POST",
-        body: JSON.stringify({
-          name: newProjectName.trim(),
-          description: newProjectDesc.trim() || null,
-        }),
-      });
-      setProjects((prev) => [created, ...prev]);
-      onSelectProject(created.id, created);
-      setIsCreateOpen(false);
-      setNewProjectName("");
-      setNewProjectDesc("");
-    } catch (err: any) {
-      alert(err.message || "Không thể tạo dự án.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    createProject.mutate(
+      {
+        name: newProjectName.trim(),
+        description: newProjectDesc.trim() || null,
+      },
+      {
+        onSuccess: (created) => {
+          onSelectProject(created.id, created);
+          closeCreateModal();
+        },
+      }
+    );
+  };
+
+  const closeCreateModal = (): void => {
+    setIsCreateOpen(false);
+    setNewProjectName("");
+    setNewProjectDesc("");
+    createProject.reset();
   };
 
   if (!user) return null;
@@ -86,7 +67,7 @@ export function ProjectSelector({
           <span className="max-w-[140px] truncate">
             {selectedProject ? selectedProject.name : "Tất Cả Cuộc Họp"}
           </span>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+          <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
         </button>
 
         {isOpen && (
@@ -154,15 +135,23 @@ export function ProjectSelector({
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-xl p-6">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900">
-                Khởi Tạo Dự Án Mới
+                Dự Án Mới
               </h3>
               <button
-                onClick={() => setIsCreateOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 transition"
+                onClick={closeCreateModal}
+                aria-label="Đóng"
+                className="p-1 rounded-lg text-slate-500 hover:text-slate-800 transition"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {createProject.isError && (
+              <div className="mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2 text-sm text-rose-800">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{getErrorMessage(createProject.error, "Không thể tạo dự án.")}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateProject} className="mt-4 space-y-4">
               <div>
@@ -181,13 +170,13 @@ export function ProjectSelector({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Mô Tả (Tùy chọn)
+                  Mô Tả
                 </label>
                 <textarea
                   rows={2}
                   value={newProjectDesc}
                   onChange={(e) => setNewProjectDesc(e.target.value)}
-                  placeholder="Mô tả mục tiêu và nhóm làm việc..."
+                  placeholder="Mục tiêu, nhóm làm việc"
                   className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
                 />
               </div>
@@ -195,17 +184,17 @@ export function ProjectSelector({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsCreateOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 hover:bg-slate-100 transition"
+                  onClick={closeCreateModal}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-700 hover:bg-slate-100 transition"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting || !newProjectName.trim()}
+                  disabled={createProject.isPending || !newProjectName.trim()}
                   className="px-4 py-2 text-xs font-semibold rounded-xl text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 transition"
                 >
-                  {isSubmitting ? "Đang tạo..." : "Tạo Dự Án"}
+                  {createProject.isPending ? "Đang tạo" : "Tạo Dự Án"}
                 </button>
               </div>
             </form>

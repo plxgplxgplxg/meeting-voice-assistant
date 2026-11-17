@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogIn, Mail, Lock, AlertCircle } from "lucide-react";
+import { getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
@@ -22,8 +23,8 @@ export default function LoginPage() {
     try {
       await login(email, password);
       router.push("/");
-    } catch (err: any) {
-      setError(err.message || "Email hoặc mật khẩu không chính xác.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Email hoặc mật khẩu không chính xác."));
     } finally {
       setIsSubmitting(false);
     }

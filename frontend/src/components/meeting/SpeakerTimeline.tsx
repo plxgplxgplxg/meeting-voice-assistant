@@ -18,14 +18,12 @@ import {
   VolumeX,
 } from "lucide-react";
 import { formatDuration } from "@/lib/utils";
+import type { TranscriptSegment } from "@/types/api";
 
-export interface TimelineSegment {
-  id: string;
-  speaker_label: string;
-  start_time: number;
-  end_time: number;
-  content: string;
-}
+export type TimelineSegment = Pick<
+  TranscriptSegment,
+  "id" | "speaker_label" | "start_time" | "end_time" | "content"
+>;
 
 export interface SpeakerTimelineHandle {
   seekTo: (seconds: number, options?: { play?: boolean }) => void;

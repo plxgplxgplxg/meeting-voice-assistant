@@ -1,4 +1,3 @@
-import asyncio
 import os
 from typing import Any
 
@@ -7,46 +6,113 @@ import structlog
 
 from app.core.config import ai_settings
 from app.core.errors import ProviderError, ProviderNotConfiguredError
-from app.pipelines.protocols import AudioProcessorProtocol
+from app.pipelines.protocols import AudioProcessorProtocol, TranscriptionResult
 
 logger = structlog.get_logger(__name__)
 
 
 class GladiaAudioPipeline(AudioProcessorProtocol):
-    """Audio processing pipeline utilizing Gladia API v2 (Solaria-1).
+    """Audio processing through Gladia API v2 (Solaria-1).
 
     Handles batch speech-to-text, speaker diarization, and word-level timestamps.
+    ``submit`` uploads and starts a job; ``get_result`` is a single status check.
     """
 
     def __init__(
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         """Initialize Gladia audio pipeline.
 
         Args:
             api_key: Gladia API token. Defaults to settings.gladia_api_key.
             base_url: Gladia API base URL. Defaults to settings.gladia_base_url.
-            timeout: HTTP request timeout in seconds.
+            timeout: HTTP request timeout in seconds (uploads can be large).
+            client: Shared HTTP client; a short-lived one is used when omitted.
         """
         self.api_key = api_key or ai_settings.gladia_api_key
         self.base_url = (base_url or ai_settings.gladia_base_url).rstrip("/")
         self.timeout = timeout
+        self._client = client
 
     @property
     def headers(self) -> dict[str, str]:
         """Headers required for authenticating with Gladia API."""
-        return {
-            "x-gladia-key": self.api_key,
-        }
+        return {"x-gladia-key": self.api_key}
+
+    async def submit(
+        self,
+        audio_path: str,
+        language: str = "vi",
+        min_speakers: int = 1,
+        max_speakers: int = 6,
+    ) -> str:
+        """Upload the recording and create a transcription job.
+
+        Args:
+            audio_path: Local filesystem path of the recording.
+            language: Spoken language code.
+            min_speakers: Min speaker count hint.
+            max_speakers: Max speaker count hint.
+
+        Returns:
+            The Gladia job id.
+
+        Raises:
+            ProviderNotConfiguredError: If no Gladia API key is configured.
+            FileNotFoundError: If the audio file does not exist.
+            ProviderError: If the upload or job creation fails.
+        """
+        if not self.api_key:
+            raise ProviderNotConfiguredError("ASR provider not configured")
+        try:
+            audio_url = await self.upload_audio(audio_path)
+            return await self.create_transcription_job(
+                audio_url, language, min_speakers, max_speakers
+            )
+        except (RuntimeError, httpx.HTTPError) as exc:
+            logger.error("gladia_submit_failed", error=str(exc))
+            raise ProviderError(f"ASR provider failed: {exc}") from exc
+
+    async def get_result(self, provider_job_id: str) -> TranscriptionResult:
+        """Check the job state once.
+
+        Args:
+            provider_job_id: Gladia job id.
+
+        Returns:
+            Current state, with normalized segments when Gladia finished.
+
+        Raises:
+            ProviderNotConfiguredError: If no Gladia API key is configured.
+            ProviderError: If Gladia cannot be reached or answers with an error status.
+        """
+        if not self.api_key:
+            raise ProviderNotConfiguredError("ASR provider not configured")
+        url = f"{self.base_url}/v2/pre-recorded/{provider_job_id}"
+        try:
+            response = await self._request("GET", url, headers=self.headers)
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"ASR provider unreachable: {exc}") from exc
+        if response.status_code != 200:
+            raise ProviderError(f"ASR provider returned status {response.status_code}")
+
+        data = response.json()
+        status = data.get("status")
+        if status == "done":
+            return TranscriptionResult("done", self.parse_utterances_to_segments(data))
+        if status == "error":
+            return TranscriptionResult("error", error=str(data.get("error") or "Unknown error"))
+        return TranscriptionResult("processing")
 
     async def upload_audio(self, audio_path: str) -> str:
         """Upload a local audio file to Gladia temporary storage.
 
-        Remote URLs are deliberately not accepted: the service only processes
-        files that were resolved inside the storage root.
+        Remote URLs are deliberately not accepted: only files resolved inside the
+        storage root are processed.
 
         Args:
             audio_path: Local filesystem path of the recording.
@@ -56,29 +122,25 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
 
         Raises:
             FileNotFoundError: If the local audio file does not exist.
-            RuntimeError: If upload request fails.
+            RuntimeError: If the upload request fails.
         """
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found at: {audio_path}")
 
-        upload_url = f"{self.base_url}/v2/upload"
-        filename = os.path.basename(audio_path)
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            with open(audio_path, "rb") as f:
-                files = {"audio": (filename, f)}
-                response = await client.post(upload_url, headers=self.headers, files=files)
+        with open(audio_path, "rb") as handle:
+            response = await self._request(
+                "POST",
+                f"{self.base_url}/v2/upload",
+                headers=self.headers,
+                files={"audio": (os.path.basename(audio_path), handle)},
+            )
 
         if response.status_code not in (200, 201):
-            logger.error("gladia_upload_failed", status_code=response.status_code, body=response.text)
-            raise RuntimeError(f"Gladia upload failed with status {response.status_code}: {response.text}")
-
-        data = response.json()
-        audio_url = data.get("audio_url")
+            logger.error("gladia_upload_failed", status_code=response.status_code)
+            raise RuntimeError(f"Gladia upload failed with status {response.status_code}")
+        audio_url = response.json().get("audio_url")
         if not audio_url:
             raise RuntimeError("Gladia upload response did not include 'audio_url'")
-
-        logger.info("gladia_upload_success", audio_url=audio_url)
         return str(audio_url)
 
     async def create_transcription_job(
@@ -87,99 +149,44 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
         language: str = "vi",
         min_speakers: int = 1,
         max_speakers: int = 6,
-    ) -> tuple[str, str]:
-        """Initiate an asynchronous transcription job with diarization enabled.
+    ) -> str:
+        """Start a transcription job with diarization enabled.
 
         Args:
-            audio_url: Hosted URL of the audio file to transcribe.
-            language: Target spoken language code (default 'vi').
+            audio_url: Hosted URL of the audio file.
+            language: Target spoken language code.
             min_speakers: Lower bound estimate of speaker count.
             max_speakers: Upper bound estimate of speaker count.
 
         Returns:
-            Tuple of (job_id, result_url).
+            The Gladia job id.
 
         Raises:
             RuntimeError: If job creation fails.
         """
-        transcribe_url = f"{self.base_url}/v2/pre-recorded"
         payload = {
             "audio_url": audio_url,
             "diarization": True,
             "model": "solaria-1",
-            "language_config": {
-                "languages": [language],
-                "code_switching": True,
-            },
-            "diarization_config": {
-                "min_speakers": min_speakers,
-                "max_speakers": max_speakers,
-            },
+            "language_config": {"languages": [language], "code_switching": True},
+            "diarization_config": {"min_speakers": min_speakers, "max_speakers": max_speakers},
         }
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                transcribe_url,
-                headers={**self.headers, "Content-Type": "application/json"},
-                json=payload,
-            )
-
+        response = await self._request(
+            "POST",
+            f"{self.base_url}/v2/pre-recorded",
+            headers={**self.headers, "Content-Type": "application/json"},
+            json=payload,
+        )
         if response.status_code not in (200, 201):
-            logger.error("gladia_job_creation_failed", status_code=response.status_code, body=response.text)
-            raise RuntimeError(f"Gladia job creation failed: {response.text}")
-
-        data = response.json()
-        job_id = data.get("id")
-        result_url = data.get("result_url")
-        if not job_id or not result_url:
-            raise RuntimeError("Gladia job response missing 'id' or 'result_url'")
-
-        logger.info("gladia_job_created", job_id=job_id, result_url=result_url)
-        return str(job_id), str(result_url)
-
-    async def poll_transcription_result(
-        self,
-        result_url: str,
-        max_wait_seconds: int = 300,
-        poll_interval: float = 3.0,
-    ) -> dict[str, Any]:
-        """Poll the Gladia job status until processing completes.
-
-        Args:
-            result_url: Polling URL returned by create_transcription_job.
-            max_wait_seconds: Maximum time to wait before timing out.
-            poll_interval: Interval between polling attempts in seconds.
-
-        Returns:
-            Complete Gladia response payload dictionary.
-
-        Raises:
-            TimeoutError: If processing exceeds max_wait_seconds.
-            RuntimeError: If the transcription job reports an error.
-        """
-        elapsed = 0.0
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            while elapsed < max_wait_seconds:
-                response = await client.get(result_url, headers=self.headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    status = data.get("status")
-                    logger.debug("gladia_polling_status", status=status, elapsed=elapsed)
-
-                    if status == "done":
-                        logger.info("gladia_transcription_completed", elapsed=elapsed)
-                        return data
-                    if status == "error":
-                        error_detail = data.get("error", "Unknown error")
-                        raise RuntimeError(f"Gladia transcription job failed: {error_detail}")
-
-                await asyncio.sleep(poll_interval)
-                elapsed += poll_interval
-
-        raise TimeoutError(f"Gladia transcription timed out after {max_wait_seconds} seconds")
+            logger.error("gladia_job_creation_failed", status_code=response.status_code)
+            raise RuntimeError(f"Gladia job creation failed with status {response.status_code}")
+        job_id = response.json().get("id")
+        if not job_id:
+            raise RuntimeError("Gladia job response missing 'id'")
+        return str(job_id)
 
     def parse_utterances_to_segments(self, result_data: dict[str, Any]) -> list[dict[str, Any]]:
-        """Normalize Gladia transcription output into unified transcript segment schema.
+        """Normalize Gladia transcription output into the unified transcript segment schema.
 
         Args:
             result_data: JSON payload from Gladia transcription result.
@@ -193,9 +200,9 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
         segments: list[dict[str, Any]] = []
         for idx, u in enumerate(utterances):
             speaker_idx = u.get("speaker", 0)
-            speaker_label = f"SPEAKER_{speaker_idx:02d}" if isinstance(speaker_idx, int) else str(speaker_idx)
-
-            raw_words = u.get("words", [])
+            speaker_label = (
+                f"SPEAKER_{speaker_idx:02d}" if isinstance(speaker_idx, int) else str(speaker_idx)
+            )
             words: list[dict[str, Any]] = [
                 {
                     "w": w.get("word", "").strip(),
@@ -203,13 +210,11 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
                     "e": int(round(float(w.get("end", 0.0)) * 1000)),
                     "p": float(w.get("confidence", 1.0)),
                 }
-                for w in raw_words
+                for w in u.get("words", [])
                 if w.get("word", "").strip()
             ]
-
             start_sec = float(u.get("start", 0.0))
             end_sec = float(u.get("end", 0.0))
-
             segments.append(
                 {
                     "segment_id": u.get("id", idx),
@@ -223,47 +228,10 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
                     "words": words,
                 }
             )
-
         return segments
 
-    async def process_audio(
-        self,
-        audio_path: str,
-        language: str = "vi",
-        min_speakers: int = 1,
-        max_speakers: int = 6,
-    ) -> list[dict[str, Any]]:
-        """Orchestrate end-to-end transcription: upload -> submit job -> poll -> format.
-
-        Args:
-            audio_path: Filesystem path to the audio file.
-            language: Spoken language code.
-            min_speakers: Min speaker count hint.
-            max_speakers: Max speaker count hint.
-
-        Returns:
-            List of standardized transcript segment dictionaries.
-
-        Raises:
-            ProviderNotConfiguredError: If no Gladia API key is configured.
-            FileNotFoundError: If the audio file does not exist.
-            ProviderError: If Gladia fails, errors, or times out.
-        """
-        if not self.api_key:
-            raise ProviderNotConfiguredError("ASR provider not configured")
-
-        try:
-            audio_url = await self.upload_audio(audio_path)
-            _, result_url = await self.create_transcription_job(
-                audio_url=audio_url,
-                language=language,
-                min_speakers=min_speakers,
-                max_speakers=max_speakers,
-            )
-            result_data = await self.poll_transcription_result(
-                result_url, max_wait_seconds=ai_settings.gladia_max_wait_seconds
-            )
-        except (RuntimeError, TimeoutError, httpx.HTTPError) as exc:
-            logger.error("gladia_pipeline_failed", error=str(exc))
-            raise ProviderError(f"ASR provider failed: {exc}") from exc
-        return self.parse_utterances_to_segments(result_data)
+    async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        if self._client is not None:
+            return await self._client.request(method, url, timeout=self.timeout, **kwargs)
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            return await client.request(method, url, **kwargs)

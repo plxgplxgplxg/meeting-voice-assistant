@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserPlus, Mail, Lock, User as UserIcon, AlertCircle } from "lucide-react";
+import { getErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 export default function RegisterPage() {
@@ -23,8 +24,8 @@ export default function RegisterPage() {
     try {
       await register(email, fullName, password);
       router.push("/");
-    } catch (err: any) {
-      setError(err.message || "Không thể tạo tài khoản. Vui lòng kiểm tra lại thông tin.");
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, "Không thể tạo tài khoản."));
     } finally {
       setIsSubmitting(false);
     }

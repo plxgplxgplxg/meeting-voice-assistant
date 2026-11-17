@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     storage_root: str = "/tmp/meeting_storage"
     max_upload_mb: int = 500
 
+    # Background processing
+    transcription_poll_seconds: float = 5.0
+    transcription_max_wait_seconds: int = 1800
+    job_max_attempts: int = 3
+    job_retry_base_seconds: float = 10.0
+
     # VietQR / SePay Configuration
     sepay_bank_code: str = "MBBank"
     sepay_account_number: str = "0987654321"

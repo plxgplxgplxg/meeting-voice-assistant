@@ -99,3 +99,22 @@ async def test_unsupported_export_format_is_rejected(
     res = await client.get(f"/api/v1/meetings/{meeting.id}/exports/pdf", headers=owner.headers)
     assert res.status_code == 422
     assert res.json()["error"]["code"] == "UNSUPPORTED_EXPORT_FORMAT"
+
+
+def test_registry_is_open_for_new_formats_without_editing_existing_code() -> None:
+    """A new renderer plugs in by registration alone and is looked up case-insensitively."""
+    from app.services.export.registry import ExportRegistry, build_default_registry
+
+    class MarkdownRenderer:
+        format = "md"
+        media_type = "text/markdown"
+        extension = "md"
+
+        def render(self, doc) -> bytes:
+            return f"# {doc.title}".encode()
+
+    registry = build_default_registry()
+    assert set(registry.formats) == {"txt", "docx", "srt", "vtt", "json"}
+    registry.register(MarkdownRenderer())
+    assert registry.get("MD").extension == "md"
+    assert ExportRegistry().formats == ()

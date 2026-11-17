@@ -87,7 +87,32 @@ class InvalidStateError(ConflictError):
 
 
 class AIUnavailableError(DomainError):
-    """The AI service is unreachable or returned an unusable response."""
+    """The AI service is unreachable or returned an unusable response.
+
+    Attributes:
+        retryable: True for transient failures (transport errors, upstream 5xx)
+            that a background job may retry. Misconfiguration is not retryable.
+    """
 
     default_code = "AI_UNAVAILABLE"
     default_status = 503
+
+    def __init__(
+        self,
+        message: str,
+        code: str | None = None,
+        status_code: int | None = None,
+        commit_changes: bool = False,
+        retryable: bool = False,
+    ) -> None:
+        """Initialize the error.
+
+        Args:
+            message: Human-readable explanation.
+            code: Optional override of the default error code.
+            status_code: Optional override of the default HTTP status.
+            commit_changes: Persist pending writes even though the request fails.
+            retryable: Whether retrying the same call may succeed.
+        """
+        super().__init__(message, code, status_code, commit_changes)
+        self.retryable = retryable

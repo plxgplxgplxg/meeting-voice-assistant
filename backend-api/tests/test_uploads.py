@@ -8,9 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.signed_urls import sign_audio_stream
 from app.models.audio_file import AudioFileModel
+from app.models.meeting import MeetingModel
+from app.models.outbox import OutboxEventModel
+from app.models.processing_job import ProcessingJobModel
 from app.services.billing.quota_service import QuotaService
+from app.services.processing.outbox import OutboxRelay
 from app.services.storage_service import StorageService
-from tests.conftest import MakeMeeting, RecordingDispatcher, RegisterUser
+from tests.conftest import MakeMeeting, RecordingSender, RegisterUser
 
 WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 64
 
@@ -117,19 +121,45 @@ async def test_upload_is_blocked_when_quota_is_exhausted(
 
 
 @pytest.mark.asyncio
-async def test_processing_is_dispatched_only_after_commit(
+async def test_upload_queues_the_job_through_the_outbox_in_the_same_transaction(
     client: AsyncClient, register_user: RegisterUser, db_session: AsyncSession,
-    dispatcher: RecordingDispatcher,
+    sender: RecordingSender,
 ) -> None:
-    """The worker is never enqueued before the request transaction commits."""
+    """The job row and the outbox event are written together; the broker is only told by the relay."""
     user = await register_user("u@example.com")
     response = await upload(client, user.headers)
     assert response.status_code == 201
-    assert dispatcher.calls == []
+    assert sender.sent == []
 
-    await db_session.commit()
-    assert len(dispatcher.calls) == 1
-    assert str(dispatcher.calls[0][0]) == response.json()["meeting_id"]
+    job = (await db_session.scalars(select(ProcessingJobModel))).one()
+    assert (job.kind, job.status, str(job.meeting_id)) == (
+        "transcribe", "pending", response.json()["meeting_id"],
+    )
+    event = (await db_session.scalars(select(OutboxEventModel))).one()
+    assert event.dispatched_at is None and event.payload == {"args": [str(job.id)]}
+
+    await OutboxRelay(db_session, sender).dispatch_pending()
+    assert sender.sent == [("run_processing_job", [str(job.id)])]
+
+
+@pytest.mark.asyncio
+async def test_failed_meeting_can_be_reprocessed_with_a_new_job(
+    client: AsyncClient, register_user: RegisterUser, make_meeting: MakeMeeting,
+    db_session: AsyncSession,
+) -> None:
+    user = await register_user("u@example.com")
+    uploaded = await upload(client, user.headers)
+    meeting_id = uploaded.json()["meeting_id"]
+    meeting = await db_session.get(MeetingModel, uuid.UUID(meeting_id))
+    meeting.status = "failed"
+    await db_session.flush()
+
+    retry = await client.post(f"/api/v1/meetings/{meeting_id}/reprocess", headers=user.headers)
+
+    assert retry.status_code == 200, retry.text
+    jobs = (await db_session.scalars(select(ProcessingJobModel))).all()
+    assert len(jobs) == 2 and len({j.idempotency_key for j in jobs}) == 2
+    assert meeting.status == "uploaded"
 
 
 @pytest.mark.asyncio

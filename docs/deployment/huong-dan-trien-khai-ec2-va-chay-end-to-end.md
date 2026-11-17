@@ -1,6 +1,6 @@
 # RUNBOOK: BIẾN MÔI TRƯỜNG, FULL E2E VÀ AWS EC2
 
-**Cập nhật:** 16/11/2026  
+**Cập nhật:** 17/11/2026  
 **Mục tiêu:** triển khai single-host bằng Docker Compose và biết chính xác phần nào chủ dự án phải tự cung cấp.
 
 ## 1. Checklist phần Rin-chan phải làm
@@ -12,7 +12,7 @@
 - [ ] Có Google AI Studio Gemini key; hoặc OpenAI key nếu đổi provider.
 - [ ] Có tài khoản ngân hàng nhận tiền, mã ngân hàng VietQR và tên/số tài khoản.
 - [ ] Có SePay account, kết nối đúng tài khoản ngân hàng và tạo webhook API key.
-- [ ] Có một audio tiếng Việt thật mà bạn biết nội dung để phát hiện fallback demo.
+- [ ] Có một audio tiếng Việt thật mà bạn biết nội dung để phát hiện dữ liệu giả (engine `mock`).
 - [ ] Nếu kiểm thử microphone `/live`: có domain trỏ về Elastic IP và email nhận thông báo Let’s Encrypt.
 - [ ] Có quyền clone repo private trên EC2 nếu repository không public.
 
@@ -34,10 +34,14 @@ Sao chép `.env.example` thành `.env`. Không commit `.env`.
 | `POSTGRES_USER` | Có | Tự chọn | Có thể giữ `postgres` |
 | `POSTGRES_PASSWORD` | Có | Password manager hoặc `openssl rand -base64 32` | Không chứa ký tự cần URL-encode nếu dùng trực tiếp trong URL Compose |
 | `POSTGRES_DB` | Có | Tự chọn | Mặc định `meeting_intelligence` |
-| `SECRET_KEY` | Có | `openssl rand -hex 32` | Ký JWT; đổi key làm token cũ mất hiệu lực |
+| `SECRET_KEY` | Có | `openssl rand -hex 32` | Ký JWT; đổi key làm token cũ mất hiệu lực. Production từ chối giá trị mặc định |
+| `AI_SERVICE_TOKEN` | Có | `openssl rand -hex 32` | Dùng chung cho `X-Service-Token` giữa Backend và AI Service, tối thiểu 32 ký tự |
+| `CORS_ORIGINS` | Có | Domain công khai | Danh sách phân tách dấu phẩy, không dùng `*` ở production |
+| `MAX_UPLOAD_MB` | Không | Tự chọn | Mặc định 500; Nginx cũng giới hạn 500 MB |
+| `AGENT_RECURSION_LIMIT` | Không | Tự chọn | Số bước tối đa của một lượt trợ lý, mặc định 8 |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Không | Tự chọn | Mặc định 60 |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | Không | Tự chọn | Mặc định 30 |
-| `GLADIA_API_KEY` | Có cho AI thật | Gladia dashboard | Thiếu key sẽ trả transcript demo |
+| `GLADIA_API_KEY` | Có cho AI thật | Gladia dashboard | Thiếu key làm meeting chuyển `failed` (không sinh transcript giả) |
 | `GLADIA_BASE_URL` | Không | Giữ mặc định | `https://api.gladia.io` |
 | `AUDIO_PIPELINE_ENGINE` | Có | `gladia` | `mock` chỉ smoke test |
 | `LLM_PROVIDER` | Có | `gemini` hoặc `openai` | Compose mặc định `gemini` |
@@ -51,11 +55,13 @@ Sao chép `.env.example` thành `.env`. Không commit `.env`.
 | `SEPAY_WEBHOOK_API_KEY` | Có | SePay webhook settings | Backend dùng để xác thực webhook |
 | `NEXT_PUBLIC_BACKEND_API_URL` | Chỉ local dev | `http://localhost:8000` | Production để rỗng/same-origin; public env bị đóng tại Next build |
 
+Production Compose tự đặt `BACKEND_API_URL` (AI Service gọi công cụ về Backend) và `AGENT_CHECKPOINT_DB_URL` (hội thoại của trợ lý lưu trong schema `langgraph` của cùng PostgreSQL, do thư viện tự tạo bảng). Không cần cấu hình thêm.
+
 `ENVIRONMENT=production` và `APP_DEBUG=false` đã được production Compose đặt trực tiếp.
 
 ### Giá trị chưa được biến môi trường hóa
 
-Model name đang hardcode trong `ai-service/app/rag/llm_client.py`: Gemini `gemini-2.0-flash`, OpenAI `gpt-4o-mini`. Trước deploy cần xác nhận model còn được account/provider hỗ trợ. Nếu không, phải bổ sung `GEMINI_MODEL`/`OPENAI_MODEL` vào settings và code.
+Model name đang gán cố định trong `ai-service/app/core/config.py` và `ai-service/app/rag/llm_client.py`: Gemini `gemini-2.0-flash`, OpenAI `gpt-4o-mini` (dùng cho cả tóm tắt, hỏi đáp và trợ lý). Trước deploy cần xác nhận model còn được account/provider hỗ trợ. Nếu không, phải bổ sung `GEMINI_MODEL`/`OPENAI_MODEL` vào settings và code.
 
 ## 3. Chuẩn bị `.env`
 
@@ -81,8 +87,10 @@ docker compose ps
 curl -fsS http://localhost:8000/health
 curl -fsS http://localhost:8001/health
 curl -fsS http://localhost:3000
-docker compose logs --tail=200 backend-api ai-service celery-worker
+docker compose logs --tail=200 backend-api ai-service celery-worker celery-beat
 ```
+
+Backend chạy `alembic upgrade head` khi khởi động container; `celery-beat` phải đang chạy vì nó chuyển sự kiện outbox sang worker mỗi 2 giây (thiếu beat thì upload xong nhưng không xử lý).
 
 Local development công khai các cổng 3000/8000/8001/5432/6379 để debug. Không dùng file Compose dev trên EC2 public.
 
@@ -247,29 +255,38 @@ Không test payment thật bằng số tài khoản demo trong `.env.example`.
 
 ```bash
 docker compose --env-file .env -f docker-compose.prod.yml ps
-docker compose --env-file .env -f docker-compose.prod.yml logs --tail=100 celery-worker ai-service backend-api
+docker compose --env-file .env -f docker-compose.prod.yml logs --tail=100 celery-worker celery-beat ai-service backend-api
 ```
 
-Tất cả service có healthcheck phải `healthy`; worker phải đang `Up`.
+Tất cả service có healthcheck phải `healthy`; worker và beat phải đang `Up`. Kiểm tra `/internal/` không lộ ra ngoài:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://<DOMAIN>/internal/agent/v1/meetings/00000000-0000-0000-0000-000000000000/overview
+```
+
+Kết quả phải là `404`.
 
 ### 11.2. Product flow
 
 1. Mở domain/IP, đăng ký user mới và đăng nhập lại.
 2. Tạo project.
 3. Upload audio thật 1–3 phút, nhớ nội dung và số người nói.
-4. Xác minh meeting chuyển `created/processing` sang `completed`.
+4. Xác minh meeting đi qua `uploaded`, `transcribing`, `summarizing` và dừng ở `ready`; tóm tắt và chỉ mục (`summary_status`, `index_status`) đều `ready`.
 5. Mở transcript:
    - nội dung phải liên quan audio thật;
-   - không được giống các câu fallback về “kiến trúc API-first/Gladia/Gemini” có trong code;
+   - không được giống các câu mẫu của engine `mock`, và meeting không được gắn nhãn dữ liệu mẫu;
    - speaker/timestamp hợp lý.
-6. Sửa text, rename speaker, xóa một segment, reload và kiểm tra persistence.
+6. Sửa text, rename speaker, xóa một segment, reload và kiểm tra persistence; mở lịch sử chỉnh sửa và hoàn tác một thay đổi; tóm tắt phải chuyển `stale` rồi tạo lại được bằng nút Tạo lại.
 7. Phát audio, click segment và kiểm tra seek.
 8. Kiểm tra summary/action items phản ánh đúng transcript.
 9. Hỏi một câu có đáp án rõ; citation phải trỏ tới segment hỗ trợ câu trả lời và click seek đúng.
 10. Xuất DOCX, JSON, SRT; mở file và kiểm tra encoding/timestamp.
-11. Tạo viewer share link, mở cửa sổ ẩn danh; ghi nhận giới hạn authorization hiện tại.
+11. Tạo viewer share link, mở cửa sổ ẩn danh: xem được, không sửa được, chỉ hỏi đáp có trích dẫn.
 12. Mở pricing, tạo VietQR, hoàn tất webhook và kiểm tra plan/quota cập nhật.
 13. Qua HTTPS, mở `/live`, cấp mic, ghi ngắn, dừng và xác minh file WebM đi qua batch pipeline.
+14. Với tài khoản Pro: hỏi trợ lý "đổi tên Speaker 1 thành An"; thẻ đề xuất phải hiển thị diff, chỉ khi bấm Áp dụng thì transcript đổi, và Hoàn tác đưa về nguyên trạng. Yêu cầu soạn biên bản DOCX và tải về.
+15. Với tài khoản Free: trợ lý chỉ trả lời có trích dẫn, không đề xuất sửa.
+16. Tắt Redis 30 giây trong lúc upload rồi bật lại: meeting vẫn được xử lý (outbox).
 
 ### 11.3. Persistence
 
@@ -305,7 +322,7 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d --build
 docker compose --env-file .env -f docker-compose.prod.yml ps
 ```
 
-Repo chưa có Alembic migration; backup trước update là bắt buộc nếu model thay đổi.
+Container Backend tự chạy `alembic upgrade head` khi khởi động nên mỗi bản release có thể thay đổi schema; backup PostgreSQL trước khi update là bắt buộc.
 
 ## 13. Troubleshooting
 
@@ -313,9 +330,13 @@ Repo chưa có Alembic migration; backup trước update là bắt buộc nếu 
 |---|---|---|
 | Compose báo biến required | `.env`, placeholder grep, `config` | Điền password/key bắt buộc |
 | Frontend gọi localhost trên EC2 | Browser Network, build cache | Rebuild frontend; production dùng same-origin |
-| Meeting đứng processing | worker log, Redis, AI log | Restart worker, kiểm tra queue/provider/volume |
-| Transcript luôn là demo | `GLADIA_API_KEY`, engine, AI warning | Điền key thật, dùng `gladia`, restart AI/worker |
-| Summary chung chung/demo | LLM provider/key/model | Sửa key/model, kiểm tra provider response |
+| Meeting đứng `uploaded` | `celery-beat` có chạy không, bảng `outbox_events` còn dòng `dispatched_at IS NULL` | Bật beat; Redis phải sẵn sàng (sự kiện tự gửi lại) |
+| Meeting đứng `transcribing`/`summarizing` | worker log, `processing_jobs.status`, `attempts`, AI log | Kiểm tra provider/quota/volume; job hết 3 lần thử sẽ thành `failed`, thử lại bằng `reprocess` |
+| Meeting `failed` ngay sau upload | `failure_reason` | Thường do thiếu `GLADIA_API_KEY`, `ffprobe` không đọc được file hoặc vượt giới hạn thời lượng của gói |
+| Hỏi đáp báo `INDEX_NOT_READY` | `index_status` | Đợi job `index`, hoặc gọi `POST /meetings/{id}/reindex` |
+| Trợ lý báo không khả dụng | `/health` của AI Service, `LLM_PROVIDER`/key, `AGENT_CHECKPOINT_DB_URL` | Điền key, kiểm tra kết nối PostgreSQL |
+| Trợ lý trả 402 | Gói của người dùng | Chỉ gói có `agent_tools` (Pro, Business) dùng công cụ |
+| Summary chung chung/sai | LLM provider/key/model | Sửa key/model, kiểm tra provider response |
 | AI container OOM | `docker stats`, kernel log | Tăng RAM/swap; worker concurrency 1 |
 | Audio 404 | `meeting_storage` mount/path | Kiểm tra volume chung Backend/Worker/AI |
 | `/live` không có microphone | URL HTTP, browser permission | Bật HTTPS, cấp permission |
@@ -326,31 +347,34 @@ Repo chưa có Alembic migration; backup trước update là bắt buộc nếu 
 
 ### P0 — bắt buộc
 
-- [ ] Gom authorization meeting thành dependency dùng cho transcript, summary, chat, audio và export; áp viewer/editor nhất quán.
-- [ ] Tắt fallback demo trong production; provider failure phải đặt meeting `failed` và cho phép retry.
-- [ ] Thêm Alembic baseline/migrations và unique/index/check constraints trong ERD.
+- [x] Authorization meeting tập trung (`MeetingAccessPolicy`) cho transcript, summary, chat, audio, export, trợ lý.
+- [x] Không có fallback demo ở production; provider failure đặt meeting `failed` và cho phép retry.
+- [x] Alembic baseline/migrations và unique/index/check constraints.
 - [ ] Chuyển access/refresh token khỏi `localStorage` sang HttpOnly Secure SameSite cookie hoặc triển khai threat model tương đương.
-- [ ] Giới hạn CORS theo domain, thêm rate limit cho auth/upload/chat/payment webhook.
-- [ ] Pin dependency/image version và có quy trình cập nhật CVE.
+- [ ] Thêm rate limit cho auth/upload/chat/payment webhook (CORS theo domain đã có).
+- [ ] Pin dependency/image version cho AI Service (Backend đã pin) và có quy trình cập nhật CVE.
 - [ ] Tự động backup + thử restore PostgreSQL/audio volume.
+- [ ] Chạy kịch bản E2E mục 11 với key thật, gồm lượt trợ lý, và lưu bằng chứng.
 
 ### P1 — để full product flow ổn định
 
-- [ ] Gọi quota check ngay tại upload boundary.
-- [ ] Regenerate summary/RAG sau khi transcript thay đổi.
-- [ ] Route guard và refresh-token retry phía frontend.
-- [ ] UI quản lý project members/action items/share revoke/expiry.
-- [ ] Retry/backoff/dead-letter cho Celery và stale-processing recovery.
-- [ ] Observability: structured request/task ID, metrics, alert queue/provider/disk.
-- [ ] Browser E2E automation cho 10 kịch bản chính.
+- [x] Quota check tại upload boundary (và theo thời lượng đo bằng `ffprobe`).
+- [x] Regenerate summary và dựng lại chỉ mục sau khi transcript thay đổi.
+- [x] Refresh-token retry phía frontend (single-flight); [ ] route guard đầy đủ (hiện chỉ chuyển về `/login` khi phiên hết hạn).
+- [ ] UI quản lý project members/share revoke/expiry (chưa có tính năng revoke/expiry ở backend).
+- [x] Retry/backoff cho job nền; [ ] dead-letter và cảnh báo job kẹt.
+- [x] Structured logging có request ID; [ ] metrics và alert queue/provider/disk.
+- [ ] Browser E2E automation cho các kịch bản chính (gồm trợ lý, duyệt, hoàn tác).
+- [ ] Đưa tên model LLM vào biến môi trường.
 
 ### P2 — mở rộng
 
-- [ ] Persistent hybrid search bằng pgvector/tsvector.
+- [x] Persistent hybrid search bằng pgvector/tsvector.
+- [ ] Tìm kiếm xuyên meeting trong project (công cụ `search_project`).
 - [ ] S3-compatible storage thay local volume.
-- [ ] Live ASR thật; hoặc xóa WebSocket mô phỏng khỏi sản phẩm.
+- [ ] Live ASR thật (WebSocket mô phỏng đã được xóa).
 - [ ] CI/CD, registry image và blue/green/rollback.
 
 ## 15. Kết luận trạng thái deploy
 
-Repo đã có đường chạy single-host cho demo E2E thật khi bạn điền key/provider/bank và hoàn tất TLS. Tuy nhiên, chưa nên công khai cho dữ liệu nhạy cảm hoặc nhiều người dùng cho đến khi hoàn thành các mục P0, đặc biệt authorization tài nguyên con, tắt fallback và migrations.
+Repo đã có đường chạy single-host cho demo E2E thật khi bạn điền key/provider/bank và hoàn tất TLS. Phần authorization, không dữ liệu giả và migrations đã xong. Chưa nên công khai cho dữ liệu nhạy cảm hoặc nhiều người dùng cho đến khi hoàn thành các mục P0 còn lại (cookie HttpOnly, rate limit, backup/restore, pin dependency) và đã chạy E2E với provider thật, vì hành vi của trợ lý với mô hình thật chưa được kiểm chứng.

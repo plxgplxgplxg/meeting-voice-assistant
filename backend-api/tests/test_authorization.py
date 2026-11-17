@@ -78,6 +78,26 @@ ROUTES = [
         {"status": "completed"},
     ),
     Route("POST", "/api/v1/meetings/{m}/reprocess", Permission.EDIT),
+    Route("POST", "/api/v1/meetings/{m}/reindex", Permission.EDIT),
+    Route("POST", "/api/v1/meetings/{m}/summary:regenerate", Permission.EDIT),
+    Route("GET", "/api/v1/meetings/{m}/audio/stream-url", Permission.VIEW),
+    Route("GET", "/api/v1/meetings/{m}/transcript/change-sets", Permission.VIEW),
+    Route("GET", f"/api/v1/meetings/{{m}}/transcript/change-sets/{FAKE_ID}", Permission.VIEW),
+    Route(
+        "POST",
+        "/api/v1/meetings/{m}/transcript/operations",
+        Permission.EDIT,
+        {"operations": [{"op": "rename_speaker", "old_label": "A", "new_label": "B"}]},
+    ),
+    Route(
+        "POST",
+        "/api/v1/meetings/{m}/transcript/operations:preview",
+        Permission.EDIT,
+        {"operations": [{"op": "rename_speaker", "old_label": "A", "new_label": "B"}]},
+    ),
+    Route(
+        "POST", f"/api/v1/meetings/{{m}}/transcript/change-sets/{FAKE_ID}/revert", Permission.EDIT
+    ),
     Route("POST", "/api/v1/meetings/{m}/share?permission=viewer", Permission.MANAGE),
     Route("DELETE", "/api/v1/meetings/{m}", Permission.MANAGE),
 ]

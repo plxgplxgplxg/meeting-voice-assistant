@@ -1,73 +1,31 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { X, Copy, Check, QrCode, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
-import { fetchApi } from "@/lib/api";
-
-export interface CheckoutDetails {
-  order_id: string;
-  order_code: string;
-  amount: number;
-  currency: string;
-  bank_code: string;
-  account_number: string;
-  account_name: string;
-  transfer_content: string;
-  qr_url: string;
-  expires_at: string;
-  status: string;
-}
+import { useOrderStatus } from "@/hooks/useSubscription";
+import type { CheckoutDetails } from "@/types/api";
 
 interface VietQRModalProps {
   isOpen: boolean;
   onClose: () => void;
   checkout: CheckoutDetails | null;
-  onPaymentSuccess?: () => void;
 }
 
-export function VietQRModal({
-  isOpen,
-  onClose,
-  checkout,
-  onPaymentSuccess,
-}: VietQRModalProps) {
+export function VietQRModal({ isOpen, onClose, checkout }: VietQRModalProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [orderStatus, setOrderStatus] = useState<string>("pending");
-  const [isPolling, setIsPolling] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen || !checkout) return;
-
-    setOrderStatus("pending");
-    setIsPolling(true);
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetchApi<{ order_code: string; status: string; paid_at: string | null }>(
-          `/payments/orders/${checkout.order_code}`
-        );
-        if (res.status === "completed") {
-          setOrderStatus("completed");
-          setIsPolling(false);
-          clearInterval(interval);
-          if (onPaymentSuccess) {
-            onPaymentSuccess();
-          }
-        }
-      } catch {
-        // Continue polling
-      }
-    }, 2500);
-
-    return () => clearInterval(interval);
-  }, [isOpen, checkout, onPaymentSuccess]);
+  const order = useOrderStatus(isOpen && checkout ? checkout.order_code : null);
+  const orderStatus = order.data?.status === "completed" ? "completed" : "pending";
 
   if (!isOpen || !checkout) return null;
 
-  const copyToClipboard = (text: string, field: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
+  const copyToClipboard = async (text: string, field: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      setCopiedField(null);
+    }
   };
 
   const formattedAmount = new Intl.NumberFormat("vi-VN", {
@@ -88,12 +46,13 @@ export function VietQRModal({
               <h2 className="text-base font-bold text-slate-900">
                 Thanh Toán VietQR
               </h2>
-              <p className="text-xs text-slate-500">Mã đơn: {checkout.order_code}</p>
+              <p className="text-xs text-slate-600">Mã đơn: {checkout.order_code}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition"
+            aria-label="Đóng"
+            className="p-1 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -108,17 +67,14 @@ export function VietQRModal({
               </div>
               <div>
                 <h3 className="text-lg font-bold text-slate-900">
-                  Thanh Toán Thành Công!
+                  Thanh Toán Thành Công
                 </h3>
-                <p className="text-xs text-slate-600 mt-1">
-                  Gói dịch vụ đã được kích hoạt ngay lập tức vào tài khoản của bạn.
-                </p>
               </div>
               <button
                 onClick={onClose}
                 className="mt-4 px-6 py-2.5 text-sm font-semibold rounded-xl text-white bg-slate-900 hover:bg-slate-800 transition"
               >
-                Đóng Và Tiếp Tục
+                Đóng
               </button>
             </div>
           ) : (
@@ -133,24 +89,24 @@ export function VietQRModal({
                 />
                 <div className="flex items-center gap-2 mt-3 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                  <span>Đang chờ chuyển khoản...</span>
+                  <span>Đang chờ chuyển khoản</span>
                 </div>
               </div>
 
               {/* Bank Details Table */}
               <div className="space-y-2.5 text-xs">
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                  <span className="text-slate-500 font-medium">Ngân Hàng:</span>
+                  <span className="text-slate-700 font-medium">Ngân Hàng:</span>
                   <span className="font-bold text-slate-800">{checkout.bank_code}</span>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                  <span className="text-slate-500 font-medium">Chủ Tài Khoản:</span>
+                  <span className="text-slate-700 font-medium">Chủ Tài Khoản:</span>
                   <span className="font-bold text-slate-800">{checkout.account_name}</span>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                  <span className="text-slate-500 font-medium">Số Tài Khoản:</span>
+                  <span className="text-slate-700 font-medium">Số Tài Khoản:</span>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-slate-900 font-mono">
                       {checkout.account_number}
@@ -169,7 +125,7 @@ export function VietQRModal({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-                  <span className="text-slate-500 font-medium">Số Tiền:</span>
+                  <span className="text-slate-700 font-medium">Số Tiền:</span>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-emerald-700 font-mono text-sm">
                       {formattedAmount}
@@ -216,9 +172,8 @@ export function VietQRModal({
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
-                  Vui lòng giữ nguyên chính xác nội dung chuyển khoản{" "}
-                  <strong>{checkout.transfer_content}</strong> để hệ thống tự động
-                  kích hoạt trong vòng 1 phút.
+                  Giữ nguyên nội dung chuyển khoản{" "}
+                  <strong>{checkout.transfer_content}</strong>
                 </span>
               </div>
             </div>

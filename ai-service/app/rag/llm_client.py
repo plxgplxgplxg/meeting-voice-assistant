@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import httpx
@@ -52,9 +53,8 @@ class OpenAICompatibleLLMClient(LLMClientProtocol):
     @property
     def endpoint(self) -> str:
         """API endpoint URL according to selected provider."""
-        if self.provider == "gemini":
-            return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        return "https://api.openai.com/v1/chat/completions"
+        base = ai_settings.llm_base_url or "https://api.openai.com/v1/"
+        return f"{base.rstrip('/')}/chat/completions"
 
     @property
     def model_name(self) -> str:
@@ -97,6 +97,7 @@ class OpenAICompatibleLLMClient(LLMClientProtocol):
             "temperature": temperature,
         }
 
+        started = time.perf_counter()
         try:
             if self._client is not None:
                 response = await self._client.post(
@@ -122,5 +123,14 @@ class OpenAICompatibleLLMClient(LLMClientProtocol):
         if not choices:
             raise ProviderError("LLM API returned response with empty choices")
 
+        usage = data.get("usage") or {}
+        logger.info(
+            "llm_call",
+            provider=self.provider,
+            model=self.model_name,
+            latency_ms=round((time.perf_counter() - started) * 1000),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+        )
         content = choices[0].get("message", {}).get("content", "")
         return str(content)

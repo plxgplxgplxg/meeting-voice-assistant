@@ -37,10 +37,15 @@ def write_audio(name: str = "m1/a.wav") -> str:
 @pytest.mark.parametrize("headers", [{}, {"X-Service-Token": "wrong"}])
 async def test_protected_routes_require_the_service_token(client_factory, headers) -> None:
     async with client_factory() as client:
-        audio = await client.post("/audio/transcribe", headers=headers, json={"meeting_id": "m", "storage_key": "x"})
-        rag = await client.post("/rag/summarize", headers=headers, json={"meeting_id": "m", "full_transcript": "t"})
-    assert audio.status_code == 401 and rag.status_code == 401
-    assert audio.json()["error"]["code"] == "INVALID_SERVICE_TOKEN"
+        responses = [
+            await client.post("/audio/transcribe", headers=headers, json={"meeting_id": "m", "storage_key": "x"}),
+            await client.get("/audio/transcribe/job-1", headers=headers),
+            await client.post("/llm/summarize", headers=headers, json={"meeting_id": "m", "full_transcript": "t"}),
+            await client.post("/embeddings", headers=headers, json={"texts": ["a"]}),
+            await client.post("/rag/answer", headers=headers, json={"query": "q"}),
+        ]
+    assert [r.status_code for r in responses] == [401] * 5
+    assert responses[0].json()["error"]["code"] == "INVALID_SERVICE_TOKEN"
 
 
 @pytest.mark.asyncio
@@ -78,26 +83,37 @@ async def test_transcribe_without_asr_key_returns_503_provider_not_configured(cl
 
 
 @pytest.mark.asyncio
-async def test_transcribe_with_mock_engine_marks_result_as_demo(client_factory) -> None:
+async def test_submit_returns_a_job_id_immediately_and_poll_returns_segments(client_factory) -> None:
+    """With the mock engine the contract is submit then poll, never one long request."""
     app.dependency_overrides[get_audio_processor] = FakeAudioProcessor
     key = write_audio()
     async with client_factory() as client:
-        response = await client.post(
+        submitted = await client.post(
             "/audio/transcribe", headers=TOKEN, json={"meeting_id": "m1", "storage_key": key}
         )
-    body = response.json()
-    assert response.status_code == 200
-    assert body["is_demo"] is True
+        job_id = submitted.json()["provider_job_id"]
+        polled = await client.get(f"/audio/transcribe/{job_id}", headers=TOKEN)
+
+    assert submitted.status_code == 200 and job_id.startswith("mock-")
+    body = polled.json()
+    assert body["status"] == "done" and body["is_demo"] is True
     assert body["segments_count"] == 2
     assert {"speaker", "start", "end", "text", "words"} <= set(body["segments"][0])
 
 
 @pytest.mark.asyncio
+async def test_poll_rejects_job_ids_that_could_alter_the_provider_url(client_factory) -> None:
+    app.dependency_overrides[get_audio_processor] = FakeAudioProcessor
+    async with client_factory() as client:
+        response = await client.get("/audio/transcribe/a%2F..%2Fb", headers=TOKEN)
+    assert response.status_code in (404, 422)
+
+
+@pytest.mark.asyncio
 async def test_summarize_without_llm_key_returns_503_not_a_canned_summary(client_factory) -> None:
-    app.state.embedder = StubEmbedder()
     async with client_factory() as client:
         response = await client.post(
-            "/rag/summarize", headers=TOKEN, json={"meeting_id": "m", "full_transcript": "A: hi"}
+            "/llm/summarize", headers=TOKEN, json={"meeting_id": "m", "full_transcript": "A: hi"}
         )
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "PROVIDER_NOT_CONFIGURED"
@@ -108,7 +124,7 @@ async def test_summarize_with_mock_engine_returns_structured_summary(client_fact
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()
     async with client_factory() as client:
         response = await client.post(
-            "/rag/summarize", headers=TOKEN, json={"meeting_id": "m", "full_transcript": "A: hi"}
+            "/llm/summarize", headers=TOKEN, json={"meeting_id": "m", "full_transcript": "A: hi"}
         )
     body = response.json()
     assert response.status_code == 200
@@ -116,18 +132,36 @@ async def test_summarize_with_mock_engine_returns_structured_summary(client_fact
 
 
 @pytest.mark.asyncio
-async def test_rag_query_returns_answer_with_citations(client_factory) -> None:
+async def test_rag_answer_cites_only_the_supplied_chunks(client_factory) -> None:
     app.dependency_overrides[get_llm_client] = lambda: FakeLLMClient()
-    app.dependency_overrides[get_embedder] = lambda: StubEmbedder()
-    segments = [
-        {"segment_id": "s1", "speaker": "A", "start": 0.0, "end": 2.0, "text": "kế hoạch quý một"},
-    ]
+    chunks = [{"segment_id": "s1", "speaker": "A", "start": 0.0, "end": 2.0, "text": "kế hoạch quý một"}]
     async with client_factory() as client:
         response = await client.post(
-            "/rag/query",
-            headers=TOKEN,
-            json={"meeting_id": "m", "query": "kế hoạch là gì", "segments": segments},
+            "/rag/answer", headers=TOKEN, json={"query": "kế hoạch là gì", "chunks": chunks}
         )
     body = response.json()
     assert response.status_code == 200
     assert body["citations"][0]["segment_id"] == "s1"
+
+
+@pytest.mark.asyncio
+async def test_embeddings_apply_the_e5_prefix_by_kind_and_run_off_the_loop(client_factory) -> None:
+    seen: list[list[str]] = []
+
+    class RecordingEmbedder:
+        model_name = "stub-model"
+
+        def encode(self, texts: list[str]) -> list[list[float]]:
+            seen.append(texts)
+            return [[0.0, 1.0] for _ in texts]
+
+    app.dependency_overrides[get_embedder] = RecordingEmbedder
+    async with client_factory() as client:
+        passage = await client.post("/embeddings", headers=TOKEN, json={"texts": ["xin chào"], "kind": "passage"})
+        query = await client.post("/embeddings", headers=TOKEN, json={"texts": ["chào"], "kind": "query"})
+        invalid = await client.post("/embeddings", headers=TOKEN, json={"texts": []})
+
+    assert seen == [["passage: xin chào"], ["query: chào"]]
+    assert passage.json() == {"vectors": [[0.0, 1.0]], "model": "stub-model", "dimensions": 2}
+    assert query.status_code == 200
+    assert invalid.status_code == 422

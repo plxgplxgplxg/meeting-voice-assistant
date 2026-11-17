@@ -1,43 +1,4475 @@
-openapi: 3.0.3
+components:
+  schemas:
+    ActionItemResponse:
+      description: Schema representing an action item checklist task.
+      properties:
+        assignee:
+          title: Assignee
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        description:
+          title: Description
+          type: string
+        due_date:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Due Date
+        id:
+          format: uuid
+          title: Id
+          type: string
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        status:
+          title: Status
+          type: string
+      required:
+      - id
+      - meeting_id
+      - description
+      - assignee
+      - status
+      - created_at
+      title: ActionItemResponse
+      type: object
+    ActionItemUpdate:
+      description: Schema for updating an action item status or assignee.
+      properties:
+        assignee:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Assignee
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        status:
+          anyOf:
+          - pattern: ^(pending|completed)$
+            type: string
+          - type: 'null'
+          title: Status
+      title: ActionItemUpdate
+      type: object
+    AddProjectMemberRequest:
+      description: Schema for inviting a member to a project via email.
+      properties:
+        email:
+          format: email
+          title: Email
+          type: string
+        role:
+          default: viewer
+          pattern: ^(editor|viewer)$
+          title: Role
+          type: string
+      required:
+      - email
+      title: AddProjectMemberRequest
+      type: object
+    AgentActionResponse:
+      description: A proposal and its outcome.
+      properties:
+        base_revision:
+          title: Base Revision
+          type: integer
+        change_set_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Change Set Id
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        decided_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Decided At
+        id:
+          format: uuid
+          title: Id
+          type: string
+        kind:
+          title: Kind
+          type: string
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        payload:
+          additionalProperties: true
+          title: Payload
+          type: object
+        preview:
+          additionalProperties: true
+          title: Preview
+          type: object
+        result:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Result
+        status:
+          title: Status
+          type: string
+      required:
+      - id
+      - conversation_id
+      - meeting_id
+      - kind
+      - status
+      - base_revision
+      - payload
+      - preview
+      - created_at
+      title: AgentActionResponse
+      type: object
+    ApproveRequest:
+      description: Optional user edits applied to the proposal before it runs.
+      properties:
+        action_item_operations:
+          anyOf:
+          - items:
+              discriminator:
+                mapping:
+                  create: '#/components/schemas/CreateActionItem'
+                  delete: '#/components/schemas/DeleteActionItem'
+                  update: '#/components/schemas/UpdateActionItem'
+                propertyName: op
+              oneOf:
+              - $ref: '#/components/schemas/CreateActionItem'
+              - $ref: '#/components/schemas/UpdateActionItem'
+              - $ref: '#/components/schemas/DeleteActionItem'
+            maxItems: 200
+            type: array
+          - type: 'null'
+          title: Action Item Operations
+        operations:
+          anyOf:
+          - items:
+              discriminator:
+                mapping:
+                  delete_segments: '#/components/schemas/DeleteSegments'
+                  merge_segments: '#/components/schemas/MergeSegments'
+                  reassign_speaker: '#/components/schemas/ReassignSpeaker'
+                  rename_speaker: '#/components/schemas/RenameSpeaker'
+                  replace_text: '#/components/schemas/ReplaceText'
+                  split_segment: '#/components/schemas/SplitSegment'
+                  update_text: '#/components/schemas/UpdateText'
+                propertyName: op
+              oneOf:
+              - $ref: '#/components/schemas/UpdateText'
+              - $ref: '#/components/schemas/ReplaceText'
+              - $ref: '#/components/schemas/RenameSpeaker'
+              - $ref: '#/components/schemas/ReassignSpeaker'
+              - $ref: '#/components/schemas/DeleteSegments'
+              - $ref: '#/components/schemas/SplitSegment'
+              - $ref: '#/components/schemas/MergeSegments'
+            maxItems: 200
+            type: array
+          - type: 'null'
+          title: Operations
+      title: ApproveRequest
+      type: object
+    ArtifactCreateRequest:
+      description: Request to generate a document for a meeting.
+      properties:
+        content_markdown:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content Markdown
+        kind:
+          enum:
+          - minutes_docx
+          - email_draft
+          - srt
+          - custom_md
+          title: Kind
+          type: string
+        title:
+          maxLength: 255
+          minLength: 1
+          title: Title
+          type: string
+      required:
+      - kind
+      - title
+      title: ArtifactCreateRequest
+      type: object
+    ArtifactResponse:
+      description: A generated document.
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        kind:
+          title: Kind
+          type: string
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        mime_type:
+          title: Mime Type
+          type: string
+        size_bytes:
+          title: Size Bytes
+          type: integer
+        source_revision:
+          title: Source Revision
+          type: integer
+        title:
+          title: Title
+          type: string
+      required:
+      - id
+      - meeting_id
+      - kind
+      - title
+      - mime_type
+      - size_bytes
+      - source_revision
+      - created_at
+      title: ArtifactResponse
+      type: object
+    AudioPlaybackResponse:
+      description: Schema providing streaming playback URL and audio metadata.
+      properties:
+        audio_file_id:
+          format: uuid
+          title: Audio File Id
+          type: string
+        duration_seconds:
+          title: Duration Seconds
+          type: number
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        mime_type:
+          title: Mime Type
+          type: string
+        stream_url:
+          title: Stream Url
+          type: string
+      required:
+      - meeting_id
+      - audio_file_id
+      - stream_url
+      - mime_type
+      - duration_seconds
+      title: AudioPlaybackResponse
+      type: object
+    AudioStreamUrlResponse:
+      description: Short-lived signed URL for streaming a meeting recording in an audio element.
+      properties:
+        expires_at:
+          title: Expires At
+          type: integer
+        url:
+          title: Url
+          type: string
+      required:
+      - url
+      - expires_at
+      title: AudioStreamUrlResponse
+      type: object
+    AudioUploadResponse:
+      description: Schema returned after an audio file is uploaded and queued.
+      properties:
+        audio_file_id:
+          format: uuid
+          title: Audio File Id
+          type: string
+        file_name:
+          title: File Name
+          type: string
+        file_size_bytes:
+          title: File Size Bytes
+          type: integer
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        status:
+          title: Status
+          type: string
+      required:
+      - meeting_id
+      - audio_file_id
+      - file_name
+      - file_size_bytes
+      - status
+      title: AudioUploadResponse
+      type: object
+    Body_upload_audio_file_api_v1_audio_upload_post:
+      properties:
+        file:
+          contentMediaType: application/octet-stream
+          title: File
+          type: string
+        meeting_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Meeting Id
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      required:
+      - file
+      title: Body_upload_audio_file_api_v1_audio_upload_post
+      type: object
+    Body_upload_meeting_audio_file_api_v1_audio_meetings__meeting_id__upload_post:
+      properties:
+        file:
+          contentMediaType: application/octet-stream
+          title: File
+          type: string
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      required:
+      - file
+      title: Body_upload_meeting_audio_file_api_v1_audio_meetings__meeting_id__upload_post
+      type: object
+    Body_upload_meeting_audio_file_api_v1_meetings__meeting_id__audio_post:
+      properties:
+        file:
+          contentMediaType: application/octet-stream
+          title: File
+          type: string
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+      required:
+      - file
+      title: Body_upload_meeting_audio_file_api_v1_meetings__meeting_id__audio_post
+      type: object
+    BulkRenameSpeakerRequest:
+      description: Schema for updating a speaker's name across all segments in a meeting.
+      properties:
+        new_speaker_label:
+          maxLength: 100
+          minLength: 1
+          title: New Speaker Label
+          type: string
+        old_speaker_label:
+          maxLength: 100
+          minLength: 1
+          title: Old Speaker Label
+          type: string
+      required:
+      - old_speaker_label
+      - new_speaker_label
+      title: BulkRenameSpeakerRequest
+      type: object
+    ChangePasswordRequest:
+      description: Schema for changing a user's password.
+      properties:
+        new_password:
+          maxLength: 128
+          minLength: 6
+          title: New Password
+          type: string
+        old_password:
+          title: Old Password
+          type: string
+      required:
+      - old_password
+      - new_password
+      title: ChangePasswordRequest
+      type: object
+    ChangeSetDetailResponse:
+      description: History entry with its segment-level changes.
+      properties:
+        actor_type:
+          title: Actor Type
+          type: string
+        actor_user_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Actor User Id
+        changes:
+          items:
+            $ref: '#/components/schemas/SegmentDiffResponse'
+          title: Changes
+          type: array
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        operations:
+          items:
+            additionalProperties: true
+            type: object
+          title: Operations
+          type: array
+        reverted:
+          default: false
+          title: Reverted
+          type: boolean
+        reverts_change_set_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Reverts Change Set Id
+        revision:
+          title: Revision
+          type: integer
+        summary:
+          title: Summary
+          type: string
+      required:
+      - id
+      - revision
+      - actor_type
+      - summary
+      - created_at
+      - operations
+      - changes
+      title: ChangeSetDetailResponse
+      type: object
+    ChangeSetResultResponse:
+      description: Outcome of applying or reverting operations.
+      properties:
+        affected_segment_ids:
+          items:
+            format: uuid
+            type: string
+          title: Affected Segment Ids
+          type: array
+        change_set_id:
+          format: uuid
+          title: Change Set Id
+          type: string
+        diff:
+          $ref: '#/components/schemas/TranscriptDiffResponse'
+        revision:
+          title: Revision
+          type: integer
+      required:
+      - change_set_id
+      - revision
+      - affected_segment_ids
+      - diff
+      title: ChangeSetResultResponse
+      type: object
+    ChangeSetSummaryResponse:
+      description: One entry of the transcript history.
+      properties:
+        actor_type:
+          title: Actor Type
+          type: string
+        actor_user_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Actor User Id
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        reverted:
+          default: false
+          title: Reverted
+          type: boolean
+        reverts_change_set_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Reverts Change Set Id
+        revision:
+          title: Revision
+          type: integer
+        summary:
+          title: Summary
+          type: string
+      required:
+      - id
+      - revision
+      - actor_type
+      - summary
+      - created_at
+      title: ChangeSetSummaryResponse
+      type: object
+    ChatMessageResponse:
+      properties:
+        citations:
+          items:
+            additionalProperties: true
+            type: object
+          title: Citations
+          type: array
+        content:
+          title: Content
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        role:
+          title: Role
+          type: string
+        status:
+          default: ok
+          title: Status
+          type: string
+        tool_calls:
+          default: []
+          items:
+            additionalProperties: true
+            type: object
+          title: Tool Calls
+          type: array
+      required:
+      - id
+      - role
+      - content
+      - citations
+      - created_at
+      title: ChatMessageResponse
+      type: object
+    ChatQueryRequest:
+      properties:
+        query:
+          minLength: 1
+          title: Query
+          type: string
+      required:
+      - query
+      title: ChatQueryRequest
+      type: object
+    CheckoutRequest:
+      description: Schema for initiating a plan upgrade / VietQR checkout session.
+      properties:
+        plan_slug:
+          maxLength: 100
+          minLength: 1
+          title: Plan Slug
+          type: string
+      required:
+      - plan_slug
+      title: CheckoutRequest
+      type: object
+    CheckoutResponse:
+      description: Schema providing VietQR code URL and bank transfer instructions.
+      properties:
+        account_name:
+          title: Account Name
+          type: string
+        account_number:
+          title: Account Number
+          type: string
+        amount:
+          title: Amount
+          type: number
+        bank_code:
+          title: Bank Code
+          type: string
+        currency:
+          default: VND
+          title: Currency
+          type: string
+        expires_at:
+          format: date-time
+          title: Expires At
+          type: string
+        order_code:
+          title: Order Code
+          type: string
+        order_id:
+          format: uuid
+          title: Order Id
+          type: string
+        qr_url:
+          title: Qr Url
+          type: string
+        status:
+          title: Status
+          type: string
+        transfer_content:
+          title: Transfer Content
+          type: string
+      required:
+      - order_id
+      - order_code
+      - amount
+      - bank_code
+      - account_number
+      - account_name
+      - transfer_content
+      - qr_url
+      - expires_at
+      - status
+      title: CheckoutResponse
+      type: object
+    CreateActionItem:
+      description: Add a new action item.
+      properties:
+        assignee:
+          anyOf:
+          - maxLength: 150
+            type: string
+          - type: 'null'
+          title: Assignee
+        description:
+          maxLength: 2000
+          minLength: 1
+          title: Description
+          type: string
+        due_date:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Due Date
+        op:
+          const: create
+          default: create
+          title: Op
+          type: string
+      required:
+      - description
+      title: CreateActionItem
+      type: object
+    DeleteActionItem:
+      description: Remove an action item.
+      properties:
+        action_item_id:
+          format: uuid
+          title: Action Item Id
+          type: string
+        op:
+          const: delete
+          default: delete
+          title: Op
+          type: string
+      required:
+      - action_item_id
+      title: DeleteActionItem
+      type: object
+    DeleteSegments:
+      description: Remove segments from the transcript.
+      properties:
+        op:
+          const: delete_segments
+          default: delete_segments
+          title: Op
+          type: string
+        segment_ids:
+          items:
+            format: uuid
+            type: string
+          minItems: 1
+          title: Segment Ids
+          type: array
+      required:
+      - segment_ids
+      title: DeleteSegments
+      type: object
+    DeleteSegmentsRequest:
+      description: Schema for deleting multiple transcript segments.
+      properties:
+        segment_ids:
+          items:
+            format: uuid
+            type: string
+          minItems: 1
+          title: Segment Ids
+          type: array
+      required:
+      - segment_ids
+      title: DeleteSegmentsRequest
+      type: object
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: Detail
+          type: array
+      title: HTTPValidationError
+      type: object
+    MeetingCreate:
+      description: Schema for initializing a new meeting.
+      properties:
+        title:
+          maxLength: 255
+          minLength: 1
+          title: Title
+          type: string
+      required:
+      - title
+      title: MeetingCreate
+      type: object
+    MeetingResponse:
+      description: Schema representing meeting session details.
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        created_by:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Created By
+        duration_seconds:
+          title: Duration Seconds
+          type: number
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Failure Reason
+        failure_stage:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Failure Stage
+        id:
+          format: uuid
+          title: Id
+          type: string
+        index_status:
+          default: none
+          title: Index Status
+          type: string
+        is_deleted:
+          default: false
+          title: Is Deleted
+          type: boolean
+        is_demo:
+          default: false
+          title: Is Demo
+          type: boolean
+        share_permission:
+          default: viewer
+          title: Share Permission
+          type: string
+        share_token:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share Token
+        status:
+          title: Status
+          type: string
+        summary_status:
+          default: none
+          title: Summary Status
+          type: string
+        title:
+          maxLength: 255
+          minLength: 1
+          title: Title
+          type: string
+        transcript_revision:
+          default: 0
+          title: Transcript Revision
+          type: integer
+        updated_at:
+          format: date-time
+          title: Updated At
+          type: string
+      required:
+      - title
+      - id
+      - status
+      - duration_seconds
+      - created_at
+      - updated_at
+      title: MeetingResponse
+      type: object
+    MeetingShareLinkResponse:
+      description: Schema returning a public or restricted shareable link.
+      properties:
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        share_permission:
+          title: Share Permission
+          type: string
+        share_token:
+          title: Share Token
+          type: string
+        share_url:
+          title: Share Url
+          type: string
+      required:
+      - meeting_id
+      - share_token
+      - share_url
+      - share_permission
+      title: MeetingShareLinkResponse
+      type: object
+    MeetingUpdate:
+      description: Schema for updating meeting attributes.
+      properties:
+        title:
+          anyOf:
+          - maxLength: 255
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Title
+      title: MeetingUpdate
+      type: object
+    MergeSegments:
+      description: Merge adjacent segments of one speaker into the first of them.
+      properties:
+        op:
+          const: merge_segments
+          default: merge_segments
+          title: Op
+          type: string
+        segment_ids:
+          items:
+            format: uuid
+            type: string
+          minItems: 2
+          title: Segment Ids
+          type: array
+      required:
+      - segment_ids
+      title: MergeSegments
+      type: object
+    OperationsPreviewRequest:
+      description: Batch of transcript operations to preview without writing.
+      properties:
+        operations:
+          items:
+            discriminator:
+              mapping:
+                delete_segments: '#/components/schemas/DeleteSegments'
+                merge_segments: '#/components/schemas/MergeSegments'
+                reassign_speaker: '#/components/schemas/ReassignSpeaker'
+                rename_speaker: '#/components/schemas/RenameSpeaker'
+                replace_text: '#/components/schemas/ReplaceText'
+                split_segment: '#/components/schemas/SplitSegment'
+                update_text: '#/components/schemas/UpdateText'
+              propertyName: op
+            oneOf:
+            - $ref: '#/components/schemas/UpdateText'
+            - $ref: '#/components/schemas/ReplaceText'
+            - $ref: '#/components/schemas/RenameSpeaker'
+            - $ref: '#/components/schemas/ReassignSpeaker'
+            - $ref: '#/components/schemas/DeleteSegments'
+            - $ref: '#/components/schemas/SplitSegment'
+            - $ref: '#/components/schemas/MergeSegments'
+          maxItems: 200
+          minItems: 1
+          title: Operations
+          type: array
+      required:
+      - operations
+      title: OperationsPreviewRequest
+      type: object
+    OperationsRequest:
+      description: Batch of transcript operations applied as one change set.
+      properties:
+        expected_revision:
+          anyOf:
+          - minimum: 0.0
+            type: integer
+          - type: 'null'
+          title: Expected Revision
+        operations:
+          items:
+            discriminator:
+              mapping:
+                delete_segments: '#/components/schemas/DeleteSegments'
+                merge_segments: '#/components/schemas/MergeSegments'
+                reassign_speaker: '#/components/schemas/ReassignSpeaker'
+                rename_speaker: '#/components/schemas/RenameSpeaker'
+                replace_text: '#/components/schemas/ReplaceText'
+                split_segment: '#/components/schemas/SplitSegment'
+                update_text: '#/components/schemas/UpdateText'
+              propertyName: op
+            oneOf:
+            - $ref: '#/components/schemas/UpdateText'
+            - $ref: '#/components/schemas/ReplaceText'
+            - $ref: '#/components/schemas/RenameSpeaker'
+            - $ref: '#/components/schemas/ReassignSpeaker'
+            - $ref: '#/components/schemas/DeleteSegments'
+            - $ref: '#/components/schemas/SplitSegment'
+            - $ref: '#/components/schemas/MergeSegments'
+          maxItems: 200
+          minItems: 1
+          title: Operations
+          type: array
+        reason:
+          anyOf:
+          - maxLength: 500
+            type: string
+          - type: 'null'
+          title: Reason
+      required:
+      - operations
+      title: OperationsRequest
+      type: object
+    OrderStatusResponse:
+      description: Schema checking payment order fulfillment status.
+      properties:
+        order_code:
+          title: Order Code
+          type: string
+        paid_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Paid At
+        status:
+          title: Status
+          type: string
+      required:
+      - order_code
+      - status
+      title: OrderStatusResponse
+      type: object
+    PlanResponse:
+      description: Schema representing an available subscription plan tier.
+      properties:
+        billing_interval:
+          title: Billing Interval
+          type: string
+        currency:
+          default: VND
+          title: Currency
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        features:
+          additionalProperties: true
+          title: Features
+          type: object
+        id:
+          format: uuid
+          title: Id
+          type: string
+        is_active:
+          title: Is Active
+          type: boolean
+        is_default:
+          title: Is Default
+          type: boolean
+        name:
+          title: Name
+          type: string
+        price_amount:
+          title: Price Amount
+          type: number
+        slug:
+          title: Slug
+          type: string
+        total_duration_limit_minutes:
+          title: Total Duration Limit Minutes
+          type: integer
+      required:
+      - id
+      - slug
+      - name
+      - price_amount
+      - billing_interval
+      - total_duration_limit_minutes
+      - is_default
+      - is_active
+      title: PlanResponse
+      type: object
+    ProjectCreateRequest:
+      description: Schema for creating a new workspace project.
+      properties:
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        name:
+          maxLength: 255
+          minLength: 1
+          title: Name
+          type: string
+      required:
+      - name
+      title: ProjectCreateRequest
+      type: object
+    ProjectMemberResponse:
+      description: Schema representing a project member and their role.
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        email:
+          format: email
+          title: Email
+          type: string
+        full_name:
+          title: Full Name
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        role:
+          title: Role
+          type: string
+        user_id:
+          format: uuid
+          title: User Id
+          type: string
+      required:
+      - id
+      - user_id
+      - email
+      - full_name
+      - role
+      - created_at
+      title: ProjectMemberResponse
+      type: object
+    ProjectResponse:
+      description: Schema for workspace project summary.
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        id:
+          format: uuid
+          title: Id
+          type: string
+        meetings_count:
+          default: 0
+          title: Meetings Count
+          type: integer
+        members_count:
+          default: 1
+          title: Members Count
+          type: integer
+        my_role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: My Role
+        name:
+          title: Name
+          type: string
+        owner_id:
+          format: uuid
+          title: Owner Id
+          type: string
+      required:
+      - id
+      - name
+      - owner_id
+      - created_at
+      title: ProjectResponse
+      type: object
+    ProjectUpdateRequest:
+      description: Schema for updating an existing workspace project.
+      properties:
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        name:
+          anyOf:
+          - maxLength: 255
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Name
+      title: ProjectUpdateRequest
+      type: object
+    ReassignSpeaker:
+      description: Attribute specific segments to another speaker.
+      properties:
+        new_label:
+          maxLength: 100
+          minLength: 1
+          title: New Label
+          type: string
+        op:
+          const: reassign_speaker
+          default: reassign_speaker
+          title: Op
+          type: string
+        segment_ids:
+          items:
+            format: uuid
+            type: string
+          minItems: 1
+          title: Segment Ids
+          type: array
+      required:
+      - segment_ids
+      - new_label
+      title: ReassignSpeaker
+      type: object
+    RefreshTokenRequest:
+      description: Schema for refreshing an expired access token.
+      properties:
+        refresh_token:
+          title: Refresh Token
+          type: string
+      required:
+      - refresh_token
+      title: RefreshTokenRequest
+      type: object
+    RenameSpeaker:
+      description: Rename a speaker label in every segment that uses it.
+      properties:
+        new_label:
+          maxLength: 100
+          minLength: 1
+          title: New Label
+          type: string
+        old_label:
+          maxLength: 100
+          minLength: 1
+          title: Old Label
+          type: string
+        op:
+          const: rename_speaker
+          default: rename_speaker
+          title: Op
+          type: string
+      required:
+      - old_label
+      - new_label
+      title: RenameSpeaker
+      type: object
+    ReplaceText:
+      description: 'Find and replace text across all segments or a chosen subset.
+
+
+        Example: rename ''Gemany'' to ''Gemini'' everywhere.'
+      properties:
+        case_sensitive:
+          default: false
+          title: Case Sensitive
+          type: boolean
+        find:
+          minLength: 1
+          title: Find
+          type: string
+        op:
+          const: replace_text
+          default: replace_text
+          title: Op
+          type: string
+        replace:
+          title: Replace
+          type: string
+        scope:
+          default: all
+          enum:
+          - all
+          - segments
+          title: Scope
+          type: string
+        segment_ids:
+          anyOf:
+          - items:
+              format: uuid
+              type: string
+            type: array
+          - type: 'null'
+          title: Segment Ids
+        whole_word:
+          default: false
+          title: Whole Word
+          type: boolean
+      required:
+      - find
+      - replace
+      title: ReplaceText
+      type: object
+    SegmentDiffResponse:
+      description: Before and after state of one segment in a change set or preview.
+      properties:
+        after:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: After
+        before:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Before
+        op:
+          enum:
+          - update
+          - delete
+          - insert
+          title: Op
+          type: string
+        order_only:
+          default: false
+          title: Order Only
+          type: boolean
+        segment_id:
+          format: uuid
+          title: Segment Id
+          type: string
+      required:
+      - op
+      - segment_id
+      title: SegmentDiffResponse
+      type: object
+    SplitSegment:
+      description: Split one segment into two at a character offset and a time.
+      properties:
+        at_char:
+          minimum: 1.0
+          title: At Char
+          type: integer
+        op:
+          const: split_segment
+          default: split_segment
+          title: Op
+          type: string
+        segment_id:
+          format: uuid
+          title: Segment Id
+          type: string
+        split_time:
+          minimum: 0.0
+          title: Split Time
+          type: number
+      required:
+      - segment_id
+      - at_char
+      - split_time
+      title: SplitSegment
+      type: object
+    SubscriptionResponse:
+      description: Schema representing user's current subscription and quota usage.
+      properties:
+        current_period_end:
+          format: date-time
+          title: Current Period End
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        plan_name:
+          title: Plan Name
+          type: string
+        plan_slug:
+          title: Plan Slug
+          type: string
+        remaining_duration_minutes:
+          title: Remaining Duration Minutes
+          type: number
+        status:
+          title: Status
+          type: string
+        total_duration_limit_minutes:
+          title: Total Duration Limit Minutes
+          type: integer
+        used_duration_minutes:
+          title: Used Duration Minutes
+          type: number
+      required:
+      - id
+      - plan_slug
+      - plan_name
+      - status
+      - current_period_end
+      - total_duration_limit_minutes
+      - used_duration_minutes
+      - remaining_duration_minutes
+      title: SubscriptionResponse
+      type: object
+    SummaryResponse:
+      description: Schema representing AI meeting summary.
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        executive_summary:
+          title: Executive Summary
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        key_points:
+          items: {}
+          title: Key Points
+          type: array
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+      required:
+      - id
+      - meeting_id
+      - executive_summary
+      - key_points
+      - created_at
+      title: SummaryResponse
+      type: object
+    TokenResponse:
+      description: Schema for returning JWT tokens after successful authentication.
+      properties:
+        access_token:
+          title: Access Token
+          type: string
+        expires_in:
+          title: Expires In
+          type: integer
+        refresh_token:
+          title: Refresh Token
+          type: string
+        token_type:
+          default: bearer
+          title: Token Type
+          type: string
+      required:
+      - access_token
+      - refresh_token
+      - expires_in
+      title: TokenResponse
+      type: object
+    TranscriptDiffResponse:
+      description: Preview of what a batch of operations would change.
+      properties:
+        base_revision:
+          title: Base Revision
+          type: integer
+        changes:
+          items:
+            $ref: '#/components/schemas/SegmentDiffResponse'
+          title: Changes
+          type: array
+        summary:
+          title: Summary
+          type: string
+      required:
+      - changes
+      - summary
+      - base_revision
+      title: TranscriptDiffResponse
+      type: object
+    TranscriptSegmentResponse:
+      description: Schema representing an individual chronological transcript turn.
+      properties:
+        content:
+          title: Content
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        end_time:
+          title: End Time
+          type: number
+        id:
+          format: uuid
+          title: Id
+          type: string
+        meeting_id:
+          format: uuid
+          title: Meeting Id
+          type: string
+        sequence_order:
+          title: Sequence Order
+          type: integer
+        speaker_label:
+          title: Speaker Label
+          type: string
+        start_time:
+          title: Start Time
+          type: number
+        version:
+          default: 1
+          title: Version
+          type: integer
+      required:
+      - id
+      - meeting_id
+      - speaker_label
+      - start_time
+      - end_time
+      - content
+      - sequence_order
+      - created_at
+      title: TranscriptSegmentResponse
+      type: object
+    TranscriptSegmentUpdate:
+      description: Schema for updating an individual transcript segment.
+      properties:
+        content:
+          anyOf:
+          - minLength: 1
+            type: string
+          - type: 'null'
+          title: Content
+        speaker_label:
+          anyOf:
+          - maxLength: 100
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Speaker Label
+      title: TranscriptSegmentUpdate
+      type: object
+    TurnRequest:
+      description: A message to the meeting assistant.
+      properties:
+        message:
+          maxLength: 4000
+          minLength: 1
+          title: Message
+          type: string
+      required:
+      - message
+      title: TurnRequest
+      type: object
+    UpdateActionItem:
+      description: Change fields of an existing action item.
+      properties:
+        action_item_id:
+          format: uuid
+          title: Action Item Id
+          type: string
+        assignee:
+          anyOf:
+          - maxLength: 150
+            type: string
+          - type: 'null'
+          title: Assignee
+        description:
+          anyOf:
+          - maxLength: 2000
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Description
+        due_date:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Due Date
+        op:
+          const: update
+          default: update
+          title: Op
+          type: string
+        status:
+          anyOf:
+          - enum:
+            - pending
+            - completed
+            type: string
+          - type: 'null'
+          title: Status
+      required:
+      - action_item_id
+      title: UpdateActionItem
+      type: object
+    UpdateProjectMemberRoleRequest:
+      description: Schema for updating a member's project access role.
+      properties:
+        role:
+          pattern: ^(editor|viewer)$
+          title: Role
+          type: string
+      required:
+      - role
+      title: UpdateProjectMemberRoleRequest
+      type: object
+    UpdateText:
+      description: Replace the text of one segment.
+      properties:
+        new_text:
+          minLength: 1
+          title: New Text
+          type: string
+        op:
+          const: update_text
+          default: update_text
+          title: Op
+          type: string
+        segment_id:
+          format: uuid
+          title: Segment Id
+          type: string
+      required:
+      - segment_id
+      - new_text
+      title: UpdateText
+      type: object
+    UserLoginRequest:
+      description: Schema for user authentication credentials.
+      properties:
+        email:
+          format: email
+          title: Email
+          type: string
+        password:
+          title: Password
+          type: string
+      required:
+      - email
+      - password
+      title: UserLoginRequest
+      type: object
+    UserRegisterRequest:
+      description: Schema for user account registration.
+      properties:
+        email:
+          format: email
+          title: Email
+          type: string
+        full_name:
+          maxLength: 255
+          minLength: 2
+          title: Full Name
+          type: string
+        password:
+          maxLength: 128
+          minLength: 6
+          title: Password
+          type: string
+      required:
+      - email
+      - full_name
+      - password
+      title: UserRegisterRequest
+      type: object
+    UserResponse:
+      description: Schema representing user profile details.
+      properties:
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        email:
+          format: email
+          title: Email
+          type: string
+        full_name:
+          title: Full Name
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        is_active:
+          title: Is Active
+          type: boolean
+        role:
+          title: Role
+          type: string
+      required:
+      - id
+      - email
+      - full_name
+      - role
+      - is_active
+      - created_at
+      title: UserResponse
+      type: object
+    UserUpdateRequest:
+      description: Schema for updating basic user profile information.
+      properties:
+        avatar_url:
+          anyOf:
+          - maxLength: 2048
+            type: string
+          - type: 'null'
+          title: Avatar Url
+        full_name:
+          anyOf:
+          - maxLength: 255
+            minLength: 2
+            type: string
+          - type: 'null'
+          title: Full Name
+      title: UserUpdateRequest
+      type: object
+    ValidationError:
+      properties:
+        ctx:
+          title: Context
+          type: object
+        input:
+          title: Input
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          title: Location
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+      type: object
+  securitySchemes:
+    HTTPBearer:
+      scheme: bearer
+      type: http
 info:
-  title: Meeting Transcription, Summarization, and QA System API
+  title: Meeting Intelligence Backend API
   version: 1.0.0
-  description: OpenAPI specification for the meeting transcription, summarization, and question answering backend.
+openapi: 3.1.0
 paths:
-  /api/v1/meetings:
-    get:
-      summary: Lấy danh sách các cuộc họp
-      responses:
-        '200':
-          description: Thành công
+  /api/v1/audio/meetings/{meeting_id}/upload:
     post:
-      summary: Tạo cuộc họp mới
+      deprecated: true
+      description: Upload a recording attached to an existing meeting (requires edit access).
+      operationId: upload_meeting_audio_file_api_v1_audio_meetings__meeting_id__upload_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_meeting_audio_file_api_v1_audio_meetings__meeting_id__upload_post'
+        required: true
       responses:
         '201':
-          description: Tạo thành công
-  /api/v1/meetings/{id}:
-    get:
-      summary: Lấy thông tin chi tiết cuộc họp
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Chi tiết cuộc họp
-  /api/v1/meetings/{id}/chat:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioUploadResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Upload Meeting Audio File
+      tags:
+      - Audio (deprecated paths)
+  /api/v1/audio/upload:
     post:
-      summary: Hỏi đáp RAG về cuộc họp
+      description: Upload a recording, creating a new meeting or attaching to an editable one.
+      operationId: upload_audio_file_api_v1_audio_upload_post
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_audio_file_api_v1_audio_upload_post'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioUploadResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Upload Audio File
+      tags:
+      - Audio
+  /api/v1/audio/{meeting_id}/playback:
+    get:
+      deprecated: true
+      description: Get audio playback metadata and stream URL for a meeting.
+      operationId: get_audio_playback_api_v1_audio__meeting_id__playback_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
       responses:
         '200':
-          description: Câu trả lời kèm trích dẫn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioPlaybackResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Audio Playback
+      tags:
+      - Audio (deprecated paths)
+  /api/v1/audio/{meeting_id}/stream:
+    get:
+      deprecated: true
+      description: 'Stream the audio file with HTTP Range support for timeline scrubbing.
+
+
+        Access is granted either by a valid signed URL or by VIEW permission.'
+      operationId: stream_meeting_audio_api_v1_audio__meeting_id__stream_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: exp
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Exp
+      - in: query
+        name: sig
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sig
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Stream Meeting Audio
+      tags:
+      - Audio (deprecated paths)
+  /api/v1/auth/login:
+    post:
+      description: Authenticate credentials and obtain JWT tokens.
+      operationId: login_user_api_v1_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Login User
+      tags:
+      - Authentication
+  /api/v1/auth/me:
+    get:
+      description: Retrieve profile of currently authenticated user.
+      operationId: get_current_authenticated_user_api_v1_auth_me_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Get Current Authenticated User
+      tags:
+      - Authentication
+  /api/v1/auth/refresh:
+    post:
+      description: Obtain a new access token using a refresh token.
+      operationId: refresh_token_api_v1_auth_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Refresh Token
+      tags:
+      - Authentication
+  /api/v1/auth/register:
+    post:
+      description: Register a new user account with default Free quota.
+      operationId: register_user_api_v1_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Register User Api V1 Auth Register Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Register User
+      tags:
+      - Authentication
+  /api/v1/chat/{meeting_id}:
+    post:
+      deprecated: true
+      description: Ask a question about a meeting and receive an answer with citations.
+      operationId: ask_question_api_v1_chat__meeting_id__post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatQueryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessageResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Ask Question
+      tags:
+      - Chat (deprecated paths)
+  /api/v1/chat/{meeting_id}/messages:
+    get:
+      deprecated: true
+      description: Retrieve the caller's chat history for a meeting in chronological order.
+      operationId: list_chat_messages_api_v1_chat__meeting_id__messages_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ChatMessageResponse'
+                title: Response List Chat Messages Api V1 Chat  Meeting Id  Messages Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Chat Messages
+      tags:
+      - Chat (deprecated paths)
+  /api/v1/exports/{meeting_id}/{format}:
+    get:
+      deprecated: true
+      description: Export meeting transcript and summary in DOCX, TXT, SRT, VTT, or JSON format.
+      operationId: export_meeting_document_api_v1_exports__meeting_id___format__get
+      parameters:
+      - in: path
+        name: format
+        required: true
+        schema:
+          title: Format
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Export Meeting Document
+      tags:
+      - Exports (deprecated paths)
+  /api/v1/meetings:
+    get:
+      description: List the meetings visible to the authenticated user.
+      operationId: list_meetings_api_v1_meetings_get
+      parameters:
+      - in: query
+        name: search
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - in: query
+        name: status
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/MeetingResponse'
+                title: Response List Meetings Api V1 Meetings Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Meetings
+      tags:
+      - Meetings
+    post:
+      description: Create a new meeting owned by the authenticated user.
+      operationId: create_meeting_api_v1_meetings_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Create Meeting
+      tags:
+      - Meetings
+  /api/v1/meetings/{meeting_id}:
+    delete:
+      description: Soft delete a meeting (creator only).
+      operationId: delete_meeting_api_v1_meetings__meeting_id__delete
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Delete Meeting
+      tags:
+      - Meetings
+    get:
+      description: Retrieve meeting details (requires view access or a share token).
+      operationId: get_meeting_api_v1_meetings__meeting_id__get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Meeting
+      tags:
+      - Meetings
+    patch:
+      description: Update the meeting title (requires edit access).
+      operationId: update_meeting_api_v1_meetings__meeting_id__patch
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Meeting
+      tags:
+      - Meetings
+  /api/v1/meetings/{meeting_id}/action-items:
+    get:
+      description: Retrieve action items associated with a meeting.
+      operationId: list_action_items_api_v1_meetings__meeting_id__action_items_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ActionItemResponse'
+                title: Response List Action Items Api V1 Meetings  Meeting Id  Action Items Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Action Items
+      tags:
+      - Summaries
+  /api/v1/meetings/{meeting_id}/action-items/{action_item_id}:
+    patch:
+      description: Update status, assignee, or description of an action item.
+      operationId: update_action_item_api_v1_meetings__meeting_id__action_items__action_item_id__patch
+      parameters:
+      - in: path
+        name: action_item_id
+        required: true
+        schema:
+          format: uuid
+          title: Action Item Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionItemUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItemResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Action Item
+      tags:
+      - Summaries
+  /api/v1/meetings/{meeting_id}/agent-actions:
+    get:
+      description: List the caller's own assistant proposals for a meeting.
+      operationId: list_agent_actions_api_v1_meetings__meeting_id__agent_actions_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/AgentActionResponse'
+                title: Response List Agent Actions Api V1 Meetings  Meeting Id  Agent Actions Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Agent Actions
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/agent-actions/{action_id}:approve:
+    post:
+      description: 'Apply a proposal, optionally with edited operations.
+
+
+        Fails with 409 when the proposal expired or the transcript changed since it was made.'
+      operationId: approve_agent_action_api_v1_meetings__meeting_id__agent_actions__action_id__approve_post
+      parameters:
+      - in: path
+        name: action_id
+        required: true
+        schema:
+          format: uuid
+          title: Action Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/ApproveRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentActionResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Approve Agent Action
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/agent-actions/{action_id}:reject:
+    post:
+      description: Discard a proposal.
+      operationId: reject_agent_action_api_v1_meetings__meeting_id__agent_actions__action_id__reject_post
+      parameters:
+      - in: path
+        name: action_id
+        required: true
+        schema:
+          format: uuid
+          title: Action Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentActionResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Reject Agent Action
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/artifacts:
+    get:
+      description: List generated documents of a meeting.
+      operationId: list_artifacts_api_v1_meetings__meeting_id__artifacts_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ArtifactResponse'
+                title: Response List Artifacts Api V1 Meetings  Meeting Id  Artifacts Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Artifacts
+      tags:
+      - Assistant
+    post:
+      description: Generate a document from the meeting (requires a plan with assistant tools).
+      operationId: create_artifact_api_v1_meetings__meeting_id__artifacts_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArtifactCreateRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Create Artifact
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/artifacts/{artifact_id}:
+    delete:
+      description: Delete a generated document (requires MANAGE on the meeting).
+      operationId: delete_artifact_api_v1_meetings__meeting_id__artifacts__artifact_id__delete
+      parameters:
+      - in: path
+        name: artifact_id
+        required: true
+        schema:
+          format: uuid
+          title: Artifact Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Delete Artifact
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/artifacts/{artifact_id}/download:
+    get:
+      description: Download a generated document.
+      operationId: download_artifact_api_v1_meetings__meeting_id__artifacts__artifact_id__download_get
+      parameters:
+      - in: path
+        name: artifact_id
+        required: true
+        schema:
+          format: uuid
+          title: Artifact Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Download Artifact
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/assistant/turns:
+    post:
+      description: 'Ask the meeting assistant something and stream the answer as Server-Sent Events.
+
+
+        Plans with agent tools get the tool-using assistant (writes become proposals the
+
+        user approves). Free plans and share-link guests get cited Q&A. Events: ``token``,
+
+        ``tool_start``, ``tool_end``, ``proposal``, ``citation``, ``done``, ``error``.'
+      operationId: start_turn_api_v1_meetings__meeting_id__assistant_turns_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TurnRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Start Turn
+      tags:
+      - Assistant
+  /api/v1/meetings/{meeting_id}/audio:
+    post:
+      description: Upload a recording attached to an existing meeting (requires edit access).
+      operationId: upload_meeting_audio_file_api_v1_meetings__meeting_id__audio_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_meeting_audio_file_api_v1_meetings__meeting_id__audio_post'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioUploadResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Upload Meeting Audio File
+      tags:
+      - Audio
+  /api/v1/meetings/{meeting_id}/audio/playback:
+    get:
+      description: Get audio playback metadata and stream URL for a meeting.
+      operationId: get_audio_playback_api_v1_meetings__meeting_id__audio_playback_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioPlaybackResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Audio Playback
+      tags:
+      - Audio
+  /api/v1/meetings/{meeting_id}/audio/stream:
+    get:
+      description: 'Stream the audio file with HTTP Range support for timeline scrubbing.
+
+
+        Access is granted either by a valid signed URL or by VIEW permission.'
+      operationId: stream_meeting_audio_api_v1_meetings__meeting_id__audio_stream_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: exp
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Exp
+      - in: query
+        name: sig
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Sig
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Stream Meeting Audio
+      tags:
+      - Audio
+  /api/v1/meetings/{meeting_id}/audio/stream-url:
+    get:
+      description: Issue a short-lived signed URL usable directly as an ``<audio>`` source.
+      operationId: get_audio_stream_url_api_v1_meetings__meeting_id__audio_stream_url_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioStreamUrlResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Audio Stream Url
+      tags:
+      - Audio
+  /api/v1/meetings/{meeting_id}/chat:
+    post:
+      description: Ask a question about a meeting and receive an answer with citations.
+      operationId: ask_question_api_v1_meetings__meeting_id__chat_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatQueryRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessageResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Ask Question
+      tags:
+      - Chat
+  /api/v1/meetings/{meeting_id}/chat/messages:
+    get:
+      description: Retrieve the caller's chat history for a meeting in chronological order.
+      operationId: list_chat_messages_api_v1_meetings__meeting_id__chat_messages_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ChatMessageResponse'
+                title: Response List Chat Messages Api V1 Meetings  Meeting Id  Chat Messages Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Chat Messages
+      tags:
+      - Chat
+  /api/v1/meetings/{meeting_id}/exports/{format}:
+    get:
+      description: Export meeting transcript and summary in DOCX, TXT, SRT, VTT, or JSON format.
+      operationId: export_meeting_document_api_v1_meetings__meeting_id__exports__format__get
+      parameters:
+      - in: path
+        name: format
+        required: true
+        schema:
+          title: Format
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Export Meeting Document
+      tags:
+      - Exports
+  /api/v1/meetings/{meeting_id}/reindex:
+    post:
+      description: Queue a rebuild of the retrieval index used for question answering.
+      operationId: reindex_meeting_api_v1_meetings__meeting_id__reindex_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                title: Response Reindex Meeting Api V1 Meetings  Meeting Id  Reindex Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Reindex Meeting
+      tags:
+      - Processing
+  /api/v1/meetings/{meeting_id}/reprocess:
+    post:
+      description: Re-run processing for the latest recording, e.g. after a failure.
+      operationId: reprocess_meeting_api_v1_meetings__meeting_id__reprocess_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AudioUploadResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Reprocess Meeting
+      tags:
+      - Audio
+  /api/v1/meetings/{meeting_id}/share:
+    post:
+      description: Create or update the share link of a meeting (creator only).
+      operationId: create_share_link_api_v1_meetings__meeting_id__share_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: permission
+        required: false
+        schema:
+          default: viewer
+          pattern: ^(viewer|editor)$
+          title: Permission
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingShareLinkResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Create Share Link
+      tags:
+      - Meetings
+  /api/v1/meetings/{meeting_id}/summary:
+    get:
+      description: Retrieve the AI generated summary for a meeting.
+      operationId: get_meeting_summary_api_v1_meetings__meeting_id__summary_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/SummaryResponse'
+                - type: 'null'
+                title: Response Get Meeting Summary Api V1 Meetings  Meeting Id  Summary Get
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Meeting Summary
+      tags:
+      - Summaries
+  /api/v1/meetings/{meeting_id}/summary:regenerate:
+    post:
+      description: Queue a new summary and action items from the current (possibly edited) transcript.
+      operationId: regenerate_summary_api_v1_meetings__meeting_id__summary_regenerate_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                title: Response Regenerate Summary Api V1 Meetings  Meeting Id  Summary Regenerate Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Regenerate Summary
+      tags:
+      - Processing
+  /api/v1/meetings/{meeting_id}/transcript:
+    get:
+      description: List chronological transcript segments for a meeting.
+      operationId: get_segments_api_v1_meetings__meeting_id__transcript_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/TranscriptSegmentResponse'
+                title: Response Get Segments Api V1 Meetings  Meeting Id  Transcript Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Segments
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/change-sets:
+    get:
+      description: List the transcript edit history, newest first.
+      operationId: list_change_sets_api_v1_meetings__meeting_id__transcript_change_sets_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ChangeSetSummaryResponse'
+                title: Response List Change Sets Api V1 Meetings  Meeting Id  Transcript Change Sets Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Change Sets
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/change-sets/{change_set_id}:
+    get:
+      description: Show one change set with the before and after of every segment it touched.
+      operationId: get_change_set_api_v1_meetings__meeting_id__transcript_change_sets__change_set_id__get
+      parameters:
+      - in: path
+        name: change_set_id
+        required: true
+        schema:
+          format: uuid
+          title: Change Set Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeSetDetailResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Change Set
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/change-sets/{change_set_id}/revert:
+    post:
+      description: Undo a change set by applying its inverse as a new change set.
+      operationId: revert_change_set_api_v1_meetings__meeting_id__transcript_change_sets__change_set_id__revert_post
+      parameters:
+      - in: path
+        name: change_set_id
+        required: true
+        schema:
+          format: uuid
+          title: Change Set Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeSetResultResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Revert Change Set
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/delete-segments:
+    post:
+      description: Delete multiple transcript segments.
+      operationId: delete_segments_api_v1_meetings__meeting_id__transcript_delete_segments_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteSegmentsRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: integer
+                title: Response Delete Segments Api V1 Meetings  Meeting Id  Transcript Delete Segments
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Delete Segments
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/operations:
+    post:
+      description: Apply a batch of operations as one change set, optionally guarded by a revision.
+      operationId: apply_operations_api_v1_meetings__meeting_id__transcript_operations_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperationsRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeSetResultResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Apply Operations
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/operations:preview:
+    post:
+      description: Show what a batch of operations would change without writing anything.
+      operationId: preview_operations_api_v1_meetings__meeting_id__transcript_operations_preview_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OperationsPreviewRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptDiffResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Preview Operations
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/rename-speaker:
+    post:
+      description: Rename a speaker across all segments in this meeting.
+      operationId: bulk_rename_speaker_api_v1_meetings__meeting_id__transcript_rename_speaker_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRenameSpeakerRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                title: Response Bulk Rename Speaker Api V1 Meetings  Meeting Id  Transcript Rename Speaker
+                  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Bulk Rename Speaker
+      tags:
+      - Transcripts
+  /api/v1/meetings/{meeting_id}/transcript/segments/{segment_id}:
+    patch:
+      description: Update text or speaker of a transcript segment.
+      operationId: update_segment_api_v1_meetings__meeting_id__transcript_segments__segment_id__patch
+      parameters:
+      - in: path
+        name: segment_id
+        required: true
+        schema:
+          format: uuid
+          title: Segment Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscriptSegmentUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptSegmentResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Segment
+      tags:
+      - Transcripts
+  /api/v1/payments/checkout:
+    post:
+      description: Create a new payment order and return VietQR bank transfer instructions.
+      operationId: create_vietqr_checkout_api_v1_payments_checkout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Create Vietqr Checkout
+      tags:
+      - VietQR Payments
+  /api/v1/payments/orders/{order_code}:
+    get:
+      description: Check whether one of the caller's payment orders has been paid.
+      operationId: check_order_status_api_v1_payments_orders__order_code__get
+      parameters:
+      - in: path
+        name: order_code
+        required: true
+        schema:
+          title: Order Code
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Check Order Status
+      tags:
+      - VietQR Payments
+  /api/v1/payments/sepay/webhook:
+    post:
+      description: Receive and process incoming bank transfer webhooks from SePay.
+      operationId: handle_sepay_webhook_api_v1_payments_sepay_webhook_post
+      parameters:
+      - in: header
+        name: authorization
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Handle Sepay Webhook Api V1 Payments Sepay Webhook Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Handle Sepay Webhook
+      tags:
+      - VietQR Payments
+  /api/v1/plans:
+    get:
+      description: Retrieve all available subscription plans.
+      operationId: list_available_plans_api_v1_plans_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PlanResponse'
+                title: Response List Available Plans Api V1 Plans Get
+                type: array
+          description: Successful Response
+      summary: List Available Plans
+      tags:
+      - Plans & Subscriptions
+  /api/v1/plans/my-subscription:
+    get:
+      description: Retrieve current subscription plan and audio duration quota usage.
+      operationId: get_my_subscription_api_v1_plans_my_subscription_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: Get My Subscription
+      tags:
+      - Plans & Subscriptions
+  /api/v1/projects:
+    get:
+      description: List all workspace projects where current user is owner or member.
+      operationId: list_my_projects_api_v1_projects_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ProjectResponse'
+                title: Response List My Projects Api V1 Projects Get
+                type: array
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+      summary: List My Projects
+      tags:
+      - Projects
+    post:
+      description: Create a new workspace project.
+      operationId: create_new_project_api_v1_projects_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Create New Project
+      tags:
+      - Projects
+  /api/v1/projects/{project_id}:
+    delete:
+      description: Delete a workspace project (Owner only).
+      operationId: delete_project_workspace_api_v1_projects__project_id__delete
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Delete Project Workspace
+      tags:
+      - Projects
+    get:
+      description: Retrieve detailed workspace information, member list, and linked meetings.
+      operationId: get_project_details_api_v1_projects__project_id__get
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                title: Response Get Project Details Api V1 Projects  Project Id  Get
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Project Details
+      tags:
+      - Projects
+    patch:
+      description: Update workspace title and description (Owner only).
+      operationId: update_project_info_api_v1_projects__project_id__patch
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectUpdateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Project Info
+      tags:
+      - Projects
+  /api/v1/projects/{project_id}/meetings/{meeting_id}:
+    post:
+      description: Associate a meeting with this project workspace.
+      operationId: link_meeting_to_project_api_v1_projects__project_id__meetings__meeting_id__post
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                title: Response Link Meeting To Project Api V1 Projects  Project Id  Meetings  Meeting
+                  Id  Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Link Meeting To Project
+      tags:
+      - Projects
+  /api/v1/projects/{project_id}/members:
+    post:
+      description: Add a registered user to project by email (Owner or Editor).
+      operationId: invite_project_member_api_v1_projects__project_id__members_post
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddProjectMemberRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMemberResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Invite Project Member
+      tags:
+      - Projects
+  /api/v1/projects/{project_id}/members/{user_id}:
+    delete:
+      description: Remove member from workspace (Owner only or self-leave).
+      operationId: remove_project_member_api_v1_projects__project_id__members__user_id__delete
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      - in: path
+        name: user_id
+        required: true
+        schema:
+          format: uuid
+          title: User Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Remove Project Member
+      tags:
+      - Projects
+    patch:
+      description: Update access role of a project member (Owner only).
+      operationId: update_member_role_api_v1_projects__project_id__members__user_id__patch
+      parameters:
+      - in: path
+        name: project_id
+        required: true
+        schema:
+          format: uuid
+          title: Project Id
+          type: string
+      - in: path
+        name: user_id
+        required: true
+        schema:
+          format: uuid
+          title: User Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectMemberRoleRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                title: Response Update Member Role Api V1 Projects  Project Id  Members  User Id  Patch
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Member Role
+      tags:
+      - Projects
+  /api/v1/summaries/action-items/{action_item_id}:
+    patch:
+      deprecated: true
+      description: 'Deprecated: update an action item without the meeting id in the path.'
+      operationId: update_action_item_legacy_api_v1_summaries_action_items__action_item_id__patch
+      parameters:
+      - in: path
+        name: action_item_id
+        required: true
+        schema:
+          format: uuid
+          title: Action Item Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionItemUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionItemResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Action Item Legacy
+      tags:
+      - Summaries (deprecated paths)
+  /api/v1/summaries/{meeting_id}:
+    get:
+      deprecated: true
+      description: Retrieve the AI generated summary for a meeting.
+      operationId: get_meeting_summary_api_v1_summaries__meeting_id__get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/SummaryResponse'
+                - type: 'null'
+                title: Response Get Meeting Summary Api V1 Summaries  Meeting Id  Get
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Meeting Summary
+      tags:
+      - Summaries (deprecated paths)
+  /api/v1/summaries/{meeting_id}/action-items:
+    get:
+      deprecated: true
+      description: Retrieve action items associated with a meeting.
+      operationId: list_action_items_api_v1_summaries__meeting_id__action_items_get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ActionItemResponse'
+                title: Response List Action Items Api V1 Summaries  Meeting Id  Action Items Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: List Action Items
+      tags:
+      - Summaries (deprecated paths)
+  /api/v1/transcripts/segments/{segment_id}:
+    patch:
+      deprecated: true
+      description: 'Deprecated: update a segment without the meeting id in the path.'
+      operationId: update_segment_legacy_api_v1_transcripts_segments__segment_id__patch
+      parameters:
+      - in: path
+        name: segment_id
+        required: true
+        schema:
+          format: uuid
+          title: Segment Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscriptSegmentUpdate'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptSegmentResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update Segment Legacy
+      tags:
+      - Transcripts (deprecated paths)
+  /api/v1/transcripts/{meeting_id}:
+    get:
+      deprecated: true
+      description: List chronological transcript segments for a meeting.
+      operationId: get_segments_api_v1_transcripts__meeting_id__get
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/TranscriptSegmentResponse'
+                title: Response Get Segments Api V1 Transcripts  Meeting Id  Get
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Get Segments
+      tags:
+      - Transcripts (deprecated paths)
+  /api/v1/transcripts/{meeting_id}/delete-segments:
+    post:
+      deprecated: true
+      description: Delete multiple transcript segments.
+      operationId: delete_segments_api_v1_transcripts__meeting_id__delete_segments_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteSegmentsRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: integer
+                title: Response Delete Segments Api V1 Transcripts  Meeting Id  Delete Segments Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Delete Segments
+      tags:
+      - Transcripts (deprecated paths)
+  /api/v1/transcripts/{meeting_id}/rename-speaker:
+    post:
+      deprecated: true
+      description: Rename a speaker across all segments in this meeting.
+      operationId: bulk_rename_speaker_api_v1_transcripts__meeting_id__rename_speaker_post
+      parameters:
+      - in: path
+        name: meeting_id
+        required: true
+        schema:
+          format: uuid
+          title: Meeting Id
+          type: string
+      - in: query
+        name: share
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Share
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRenameSpeakerRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                title: Response Bulk Rename Speaker Api V1 Transcripts  Meeting Id  Rename Speaker Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Bulk Rename Speaker
+      tags:
+      - Transcripts (deprecated paths)
+  /api/v1/users/me:
+    patch:
+      description: Update profile attributes for currently authenticated user.
+      operationId: update_my_profile_api_v1_users_me_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Update My Profile
+      tags:
+      - Users
+  /api/v1/users/me/change-password:
+    post:
+      description: Change the password, invalidate old tokens, and return a fresh token pair.
+      operationId: change_my_password_api_v1_users_me_change_password_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  anyOf:
+                  - type: string
+                  - $ref: '#/components/schemas/TokenResponse'
+                title: Response Change My Password Api V1 Users Me Change Password Post
+                type: object
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - HTTPBearer: []
+      summary: Change My Password
+      tags:
+      - Users
+  /health:
+    get:
+      description: Service health check probe.
+      operationId: health_check_health_get
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                title: Response Health Check Health Get
+                type: object
+          description: Successful Response
+      summary: Health Check
+      tags:
+      - Health

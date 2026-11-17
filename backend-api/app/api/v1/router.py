@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    assistant,
     audio,
     auth,
     chat,
@@ -8,6 +9,7 @@ from app.api.v1.endpoints import (
     meetings,
     payments,
     plans,
+    processing,
     projects,
     summaries,
     transcripts,
@@ -24,7 +26,9 @@ api_router.include_router(audio.router)
 api_router.include_router(transcripts.router)
 api_router.include_router(summaries.router)
 api_router.include_router(chat.router)
+api_router.include_router(assistant.router)
 api_router.include_router(exports.router)
+api_router.include_router(processing.router)
 api_router.include_router(plans.router)
 api_router.include_router(payments.router)
 

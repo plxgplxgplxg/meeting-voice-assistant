@@ -1,26 +1,23 @@
 import os
 import uuid
 
-import structlog
 from fastapi import UploadFile
-from sqlalchemy import event, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, ValidationFailedError
 from app.core.security import sanitize_filename
 from app.core.signed_urls import sign_audio_stream
-from app.domain.enums import MeetingStatus
+from app.domain.enums import JobKind, MeetingStatus
 from app.models.audio_file import AudioFileModel
 from app.models.meeting import MeetingModel
 from app.models.user import UserModel
 from app.schemas.audio import AudioPlaybackResponse, AudioStreamUrlResponse, AudioUploadResponse
 from app.services.audio_validation import ALLOWED_AUDIO_EXTENSIONS, looks_like_audio_container
 from app.services.billing.quota_service import QuotaService
-from app.services.processing.dispatch import ProcessingDispatcher
+from app.services.processing.jobs import JobService
 from app.services.processing.state import transition
 from app.services.storage_service import StorageService
-
-logger = structlog.get_logger(__name__)
 
 
 class AudioService:
@@ -31,7 +28,7 @@ class AudioService:
         session: AsyncSession,
         storage: StorageService,
         quota_service: QuotaService,
-        dispatcher: ProcessingDispatcher,
+        jobs: JobService,
     ) -> None:
         """Initialize the service.
 
@@ -39,12 +36,12 @@ class AudioService:
             session: Active SQLAlchemy session.
             storage: Object storage for recordings.
             quota_service: Used to block uploads when the quota is exhausted.
-            dispatcher: Enqueues background processing after the transaction commits.
+            jobs: Queues background processing through the transactional outbox.
         """
         self.session = session
         self.storage = storage
         self.quota_service = quota_service
-        self.dispatcher = dispatcher
+        self.jobs = jobs
 
     async def handle_uploaded_audio(
         self,
@@ -115,7 +112,9 @@ class AudioService:
         self.session.add(audio_file)
         await self.session.flush()
 
-        self._dispatch_after_commit(meeting.id, audio_file.id)
+        await self.jobs.enqueue(
+            meeting.id, JobKind.TRANSCRIBE, f"transcribe:{audio_file.id}", audio_file.id
+        )
 
         return AudioUploadResponse(
             meeting_id=meeting.id,
@@ -156,7 +155,12 @@ class AudioService:
         audio_file = await self.get_latest_audio(meeting.id)
         transition(meeting, MeetingStatus.UPLOADED)
         await self.session.flush()
-        self._dispatch_after_commit(meeting.id, audio_file.id)
+        await self.jobs.enqueue(
+            meeting.id,
+            JobKind.TRANSCRIBE,
+            f"transcribe:{audio_file.id}:{uuid.uuid4().hex}",
+            audio_file.id,
+        )
         return AudioUploadResponse(
             meeting_id=meeting.id,
             audio_file_id=audio_file.id,
@@ -188,18 +192,3 @@ class AudioService:
             mime_type=audio_file.mime_type,
             duration_seconds=audio_file.duration_seconds,
         )
-
-    def _dispatch_after_commit(self, meeting_id: uuid.UUID, audio_file_id: uuid.UUID) -> None:
-        """Enqueue processing only once the request transaction has committed.
-
-        Dispatching before the commit lets the worker run against rows that do
-        not exist yet. This is an interim guard until the transactional outbox
-        (roadmap T2.2) replaces it.
-        """
-
-        @event.listens_for(self.session.sync_session, "after_commit", once=True)
-        def _send(_session: object) -> None:
-            try:
-                self.dispatcher.dispatch(meeting_id, audio_file_id)
-            except Exception as exc:
-                logger.error("processing_dispatch_failed", meeting_id=str(meeting_id), error=str(exc))

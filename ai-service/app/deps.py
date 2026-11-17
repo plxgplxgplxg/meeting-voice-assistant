@@ -12,11 +12,13 @@ from app.rag.fake import FakeLLMClient
 from app.rag.generator import MeetingSummaryGenerator, RAGAnswerGenerator
 from app.rag.llm_client import OpenAICompatibleLLMClient
 from app.rag.protocols import EmbeddingProviderProtocol, LLMClientProtocol
-from app.rag.retriever import MeetingRetriever
 
 
-def build_audio_processor() -> AudioProcessorProtocol:
-    """Select the ASR adapter from configuration.
+def build_audio_processor(request: Request) -> AudioProcessorProtocol:
+    """Select the ASR adapter from configuration, reusing the lifespan HTTP client.
+
+    Args:
+        request: Current request, used to reach ``app.state``.
 
     Returns:
         ``FakeAudioProcessor`` for the development mock engine, otherwise Gladia.
@@ -28,7 +30,7 @@ def build_audio_processor() -> AudioProcessorProtocol:
         if ai_settings.is_production:
             raise ProviderNotConfiguredError("Mock engine is disabled in production.")
         return FakeAudioProcessor()
-    return GladiaAudioPipeline()
+    return GladiaAudioPipeline(client=getattr(request.app.state, "http", None))
 
 
 def build_llm_client(request: Request) -> LLMClientProtocol:
@@ -45,9 +47,9 @@ def build_llm_client(request: Request) -> LLMClientProtocol:
     return OpenAICompatibleLLMClient(client=getattr(request.app.state, "http", None))
 
 
-def get_audio_processor() -> AudioProcessorProtocol:
+def get_audio_processor(request: Request) -> AudioProcessorProtocol:
     """Provide the ASR adapter."""
-    return build_audio_processor()
+    return build_audio_processor(request)
 
 
 def get_llm_client(request: Request) -> LLMClientProtocol:
@@ -75,14 +77,8 @@ def get_answer_generator(llm: LLMClient) -> RAGAnswerGenerator:
     return RAGAnswerGenerator(llm_client=llm)
 
 
-def get_retriever(embedder: Embedder) -> MeetingRetriever:
-    """Provide the hybrid retriever bound to the shared embedder."""
-    return MeetingRetriever(embedding_provider=embedder)
-
-
 SummaryGeneratorDep = Annotated[MeetingSummaryGenerator, Depends(get_summary_generator)]
 AnswerGeneratorDep = Annotated[RAGAnswerGenerator, Depends(get_answer_generator)]
-RetrieverDep = Annotated[MeetingRetriever, Depends(get_retriever)]
 
 
 def resolve_storage_key(storage_key: str) -> Path:

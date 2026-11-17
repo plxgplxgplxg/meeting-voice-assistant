@@ -1,4 +1,7 @@
+import uuid
 from typing import Any
+
+from app.pipelines.protocols import TranscriptionResult
 
 DEMO_SEGMENTS: list[dict[str, Any]] = [
     {
@@ -35,14 +38,14 @@ class FakeAudioProcessor:
 
     is_demo = True
 
-    async def process_audio(
+    async def submit(
         self,
         audio_path: str,
         language: str = "vi",
         min_speakers: int = 1,
         max_speakers: int = 6,
-    ) -> list[dict[str, Any]]:
-        """Return the fixed demo transcript regardless of the input.
+    ) -> str:
+        """Accept any file and return a job id that is immediately complete.
 
         Args:
             audio_path: Ignored.
@@ -51,6 +54,17 @@ class FakeAudioProcessor:
             max_speakers: Ignored.
 
         Returns:
-            A copy of the demo segments.
+            A mock job id.
         """
-        return [dict(segment) for segment in DEMO_SEGMENTS]
+        return f"mock-{uuid.uuid4().hex[:12]}"
+
+    async def get_result(self, provider_job_id: str) -> TranscriptionResult:
+        """Return the fixed demo transcript for any mock job.
+
+        Args:
+            provider_job_id: Ignored.
+
+        Returns:
+            A finished result with a copy of the demo segments.
+        """
+        return TranscriptionResult("done", [dict(segment) for segment in DEMO_SEGMENTS])

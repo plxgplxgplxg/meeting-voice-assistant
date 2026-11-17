@@ -5,9 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import utc_now
 from app.core.errors import QuotaExceededError
+from app.models.agent import AgentConversationModel, AgentMessageModel
 from app.models.billing import MeetingQuotaUsageModel, SubscriptionModel
 from app.models.user import UserModel
 from app.schemas.billing import SubscriptionResponse
+from app.services.billing.plan_service import PlanService
 from app.services.billing.subscription_service import SubscriptionService
 
 UNLIMITED_REMAINING_MINUTES = 999999.0
@@ -73,6 +75,56 @@ class QuotaService:
             raise QuotaExceededError(
                 f"Monthly recording quota exhausted ({summary.used_duration_minutes}/"
                 f"{summary.total_duration_limit_minutes} minutes). Please upgrade your plan."
+            )
+
+    async def assert_agent_allowed(self, user_id: uuid.UUID) -> None:
+        """Ensure the user's plan includes assistant edits and generated documents.
+
+        Args:
+            user_id: User about to use an agent write tool or create an artifact.
+
+        Raises:
+            QuotaExceededError: With code ``PLAN_FEATURE_REQUIRED`` on plans without agent tools.
+        """
+        sub = await self.subscriptions.get_current(user_id)
+        PlanService(self.session).assert_agent_allowed(sub.plan)
+
+    async def agent_tools_enabled(self, user_id: uuid.UUID) -> bool:
+        """Return whether the user's plan includes the assistant's tools."""
+        sub = await self.subscriptions.get_current(user_id)
+        return bool(sub.plan.features.get("agent_tools"))
+
+    async def assert_question_allowed(self, user_id: uuid.UUID) -> None:
+        """Enforce the plan's monthly question limit (``features.rag_questions``).
+
+        Args:
+            user_id: User about to ask a question.
+
+        Raises:
+            QuotaExceededError: With code ``RAG_QUESTION_LIMIT`` once the limit is used up.
+        """
+        sub = await self.subscriptions.get_current(user_id)
+        limit = sub.plan.features.get("rag_questions")
+        if not isinstance(limit, int):
+            return
+        used = await self.session.scalar(
+            select(func.count())
+            .select_from(AgentMessageModel)
+            .join(
+                AgentConversationModel,
+                AgentConversationModel.id == AgentMessageModel.conversation_id,
+            )
+            .where(
+                AgentConversationModel.user_id == user_id,
+                AgentMessageModel.role == "user",
+                AgentMessageModel.created_at >= sub.current_period_start,
+                AgentMessageModel.created_at < sub.current_period_end,
+            )
+        )
+        if (used or 0) >= limit:
+            raise QuotaExceededError(
+                f"Monthly question limit reached ({limit}). Please upgrade your plan.",
+                code="RAG_QUESTION_LIMIT",
             )
 
     async def record_usage(

@@ -2,12 +2,18 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
+import structlog
 from fastapi import Depends, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.ai_service_client import AIServiceClient, HttpAIServiceClient
+from app.clients.ai_service_client import (
+    AgentStreamClient,
+    AIServiceClient,
+    HttpAgentStreamClient,
+    HttpAIServiceClient,
+)
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.errors import AuthenticationError, PermissionDeniedError
@@ -17,15 +23,23 @@ from app.domain.enums import Permission
 from app.models.meeting import MeetingModel
 from app.models.user import UserModel
 from app.services.access_policy import MeetingAccessPolicy
+from app.services.agent_actions import AgentActionService
+from app.services.agent_tools import AgentToolService
+from app.services.artifact_service import ArtifactService
+from app.services.assistant_service import AssistantService
 from app.services.audio_service import AudioService
 from app.services.billing.plan_service import PlanService
 from app.services.billing.quota_service import QuotaService
 from app.services.chat_service import ChatService
-from app.services.export_service import ExportService
+from app.services.event_bus import EventBus, build_event_bus
+from app.services.export.service import ExportService
 from app.services.meeting_service import MeetingService
-from app.services.processing.dispatch import CeleryProcessingDispatcher, ProcessingDispatcher
+from app.services.processing.commands import ProcessingCommands
+from app.services.processing.jobs import JobService
+from app.services.retrieval_service import RetrievalService, TranscriptRetriever
 from app.services.storage_service import StorageService
 from app.services.summary_service import SummaryService
+from app.services.transcript_editor import TranscriptEditor
 from app.services.transcript_service import TranscriptService
 
 http_bearer = HTTPBearer(auto_error=False)
@@ -64,6 +78,7 @@ async def _load_user_from_token(token: str, db: AsyncSession) -> UserModel:
         raise AuthenticationError("Invalid or expired token.", code="INVALID_TOKEN")
     if not user.is_active:
         raise PermissionDeniedError("User account is deactivated.", code="ACCOUNT_DISABLED")
+    structlog.contextvars.bind_contextvars(user_id=str(user.id))
     return user
 
 
@@ -171,14 +186,8 @@ def get_storage_service() -> StorageService:
     return StorageService()
 
 
-def get_dispatcher() -> ProcessingDispatcher:
-    """Provide the background processing dispatcher."""
-    return CeleryProcessingDispatcher()
-
-
 AIClient = Annotated[AIServiceClient, Depends(get_ai_client)]
 Storage = Annotated[StorageService, Depends(get_storage_service)]
-Dispatcher = Annotated[ProcessingDispatcher, Depends(get_dispatcher)]
 
 
 def get_meeting_service(db: DbSession, policy: AccessPolicy) -> MeetingService:
@@ -206,9 +215,29 @@ def get_plan_service(db: DbSession) -> PlanService:
     return PlanService(db)
 
 
-def get_chat_service(db: DbSession, ai_client: AIClient) -> ChatService:
+def get_job_service(db: DbSession) -> JobService:
+    """Provide the processing job service."""
+    return JobService(db)
+
+
+def get_retriever(db: DbSession, ai_client: AIClient) -> TranscriptRetriever:
+    """Provide hybrid transcript retrieval."""
+    return RetrievalService(db, ai_client)
+
+
+Retriever = Annotated[TranscriptRetriever, Depends(get_retriever)]
+
+
+def get_processing_commands(
+    db: DbSession, jobs: Annotated[JobService, Depends(get_job_service)]
+) -> ProcessingCommands:
+    """Provide the user-triggered processing commands."""
+    return ProcessingCommands(db, jobs)
+
+
+def get_chat_service(db: DbSession, ai_client: AIClient, retriever: Retriever) -> ChatService:
     """Provide the chat service."""
-    return ChatService(db, ai_client)
+    return ChatService(db, ai_client, retriever)
 
 
 def get_export_service(db: DbSession) -> ExportService:
@@ -217,11 +246,13 @@ def get_export_service(db: DbSession) -> ExportService:
 
 
 def get_audio_service(
-    db: DbSession, storage: Storage, quota: Annotated[QuotaService, Depends(get_quota_service)],
-    dispatcher: Dispatcher,
+    db: DbSession,
+    storage: Storage,
+    quota: Annotated[QuotaService, Depends(get_quota_service)],
+    jobs: Annotated[JobService, Depends(get_job_service)],
 ) -> AudioService:
     """Provide the audio ingestion service."""
-    return AudioService(db, storage, quota, dispatcher)
+    return AudioService(db, storage, quota, jobs)
 
 
 MeetingServiceDep = Annotated[MeetingService, Depends(get_meeting_service)]
@@ -232,3 +263,73 @@ PlanServiceDep = Annotated[PlanService, Depends(get_plan_service)]
 ChatServiceDep = Annotated[ChatService, Depends(get_chat_service)]
 ExportServiceDep = Annotated[ExportService, Depends(get_export_service)]
 AudioServiceDep = Annotated[AudioService, Depends(get_audio_service)]
+ProcessingCommandsDep = Annotated[ProcessingCommands, Depends(get_processing_commands)]
+
+
+def get_event_bus(db: DbSession) -> EventBus:
+    """Provide the in-process event bus bound to the request transaction."""
+    return build_event_bus(db)
+
+
+def get_transcript_editor(
+    db: DbSession, policy: AccessPolicy, events: Annotated[EventBus, Depends(get_event_bus)]
+) -> TranscriptEditor:
+    """Provide the transcript command layer."""
+    return TranscriptEditor(db, policy, events)
+
+
+TranscriptEditorDep = Annotated[TranscriptEditor, Depends(get_transcript_editor)]
+
+
+def get_agent_stream_client(request: Request) -> AgentStreamClient:
+    """Provide the streaming client for assistant turns."""
+    return HttpAgentStreamClient(
+        settings.ai_service_url, settings.ai_service_token, request.state.http_client
+    )
+
+
+AgentStream = Annotated[AgentStreamClient, Depends(get_agent_stream_client)]
+
+
+def get_agent_action_service(
+    db: DbSession,
+    policy: AccessPolicy,
+    editor: TranscriptEditorDep,
+    summaries: Annotated[SummaryService, Depends(get_summary_service)],
+    commands: Annotated[ProcessingCommands, Depends(get_processing_commands)],
+    quota: Annotated[QuotaService, Depends(get_quota_service)],
+) -> AgentActionService:
+    """Provide the proposal service."""
+    return AgentActionService(db, policy, editor, summaries, commands, quota)
+
+
+def get_agent_tool_service(
+    db: DbSession,
+    policy: AccessPolicy,
+    retriever: Retriever,
+    summaries: Annotated[SummaryService, Depends(get_summary_service)],
+) -> AgentToolService:
+    """Provide the assistant's read tools."""
+    return AgentToolService(db, policy, retriever, summaries)
+
+
+def get_artifact_service(db: DbSession, storage: Storage) -> ArtifactService:
+    """Provide artifact generation and storage."""
+    return ArtifactService(db, storage)
+
+
+def get_assistant_service(
+    db: DbSession,
+    chat: Annotated[ChatService, Depends(get_chat_service)],
+    agent_client: AgentStream,
+    actions: Annotated[AgentActionService, Depends(get_agent_action_service)],
+    quota: Annotated[QuotaService, Depends(get_quota_service)],
+) -> AssistantService:
+    """Provide the assistant turn orchestrator."""
+    return AssistantService(db, chat, agent_client, actions, quota)
+
+
+AgentActionServiceDep = Annotated[AgentActionService, Depends(get_agent_action_service)]
+AgentToolServiceDep = Annotated[AgentToolService, Depends(get_agent_tool_service)]
+ArtifactServiceDep = Annotated[ArtifactService, Depends(get_artifact_service)]
+AssistantServiceDep = Annotated[AssistantService, Depends(get_assistant_service)]

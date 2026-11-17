@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, String
+from sqlalchemy import BigInteger, Float, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.clock import utc_now
 from app.core.database import Base
+from app.models.types import UTCDateTime
 
 
 class AudioFileModel(Base):
@@ -31,7 +32,7 @@ class AudioFileModel(Base):
         String(50), default="completed", nullable=False
     )  # pending, completed, failed
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
     meeting = relationship("MeetingModel", back_populates="audio_files")

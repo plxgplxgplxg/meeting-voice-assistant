@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +11,7 @@ from app.core.clock import utc_now
 from app.core.database import Base
 from app.domain.enums import OrderStatus, SubscriptionStatus, WebhookEventStatus
 from app.models.constraints import enum_check
+from app.models.types import UTCDateTime
 
 
 class PlanConfigModel(Base):
@@ -37,7 +38,7 @@ class PlanConfigModel(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
 
@@ -62,14 +63,14 @@ class SubscriptionModel(Base):
         String(50), default="active", nullable=False
     )  # active, expired, replaced, cancelled
     current_period_start: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
-    current_period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    current_period_end: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     plan_snapshot: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
     user = relationship("UserModel", back_populates="subscriptions")
@@ -100,7 +101,7 @@ class MeetingQuotaUsageModel(Base):
     )
     duration_seconds: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     usage_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
 
@@ -132,10 +133,10 @@ class PaymentOrderModel(Base):
     )  # pending, completed, expired, failed
     qr_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    paid_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
     user = relationship("UserModel", back_populates="payment_orders")
@@ -167,5 +168,5 @@ class SepayWebhookEventModel(Base):
         String(50), default="pending", nullable=False
     )  # pending, processed, ignored
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )

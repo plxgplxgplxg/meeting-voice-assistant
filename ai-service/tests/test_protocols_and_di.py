@@ -1,39 +1,30 @@
-from typing import Any
 
 import httpx
 import pytest
 
-from app.pipelines.protocols import AudioProcessorProtocol
+from app.pipelines.protocols import AudioProcessorProtocol, TranscriptionResult
 from app.rag.generator import MeetingSummaryGenerator, RAGAnswerGenerator
 from app.rag.llm_client import OpenAICompatibleLLMClient
-from app.rag.protocols import EmbeddingProviderProtocol, LLMClientProtocol
-from app.rag.retriever import MeetingRetriever
+from app.rag.protocols import LLMClientProtocol
 
 
 class MockAudioProcessor(AudioProcessorProtocol):
     """Mock audio processor implementing AudioProcessorProtocol."""
 
-    def __init__(self, segments: list[dict[str, Any]] | None = None) -> None:
-        self.segments = segments or [
-            {
-                "segment_id": 0,
-                "speaker": "SPEAKER_00",
-                "start": 0.0,
-                "end": 2.0,
-                "text": "Kiểm thử pipeline âm thanh.",
-                "confidence": 0.99,
-                "words": [],
-            }
-        ]
-
-    async def process_audio(
+    async def submit(
         self,
         audio_path: str,
         language: str = "vi",
         min_speakers: int = 1,
         max_speakers: int = 6,
-    ) -> list[dict[str, Any]]:
-        return self.segments
+    ) -> str:
+        return "job-1"
+
+    async def get_result(self, provider_job_id: str) -> TranscriptionResult:
+        return TranscriptionResult(
+            "done",
+            [{"segment_id": 0, "speaker": "SPEAKER_00", "start": 0.0, "end": 2.0, "text": "Kiểm thử."}],
+        )
 
 
 class MockLLMClient(LLMClientProtocol):
@@ -52,28 +43,18 @@ class MockLLMClient(LLMClientProtocol):
         return self.response_text
 
 
-class MockEmbeddingProvider(EmbeddingProviderProtocol):
-    """Mock embedding provider implementing EmbeddingProviderProtocol."""
-
-    def encode(self, texts: list[str]) -> list[list[float]]:
-        # Return simple orthogonal or deterministic vectors
-        result: list[list[float]] = []
-        for text in texts:
-            if "quan trọng" in text:
-                result.append([1.0, 0.0, 0.0])
-            else:
-                result.append([0.0, 1.0, 0.0])
-        return result
 
 
 @pytest.mark.asyncio
 async def test_audio_processor_satisfies_protocol() -> None:
-    """A custom AudioProcessorProtocol implementation is accepted wherever a processor is needed."""
-    mock_processor = MockAudioProcessor()
-    assert isinstance(mock_processor, AudioProcessorProtocol)
+    """A custom AudioProcessorProtocol implementation can submit and poll a job."""
+    processor = MockAudioProcessor()
+    assert isinstance(processor, AudioProcessorProtocol)
 
-    segments = await mock_processor.process_audio("fake.wav")
-    assert segments[0]["speaker"] == "SPEAKER_00"
+    job_id = await processor.submit("fake.wav")
+    result = await processor.get_result(job_id)
+    assert result.status == "done"
+    assert result.segments[0]["speaker"] == "SPEAKER_00"
 
 
 @pytest.mark.asyncio
@@ -152,19 +133,3 @@ async def test_openai_compatible_llm_client_transport() -> None:
             messages=[{"role": "user", "content": "Xin chào"}]
         )
         assert response == "Phản hồi thử nghiệm từ mock server."
-
-
-@pytest.mark.asyncio
-async def test_embedding_provider_dependency_injection() -> None:
-    """Verify that custom EmbeddingProviderProtocol can be injected into MeetingRetriever."""
-    mock_provider = MockEmbeddingProvider()
-    retriever = MeetingRetriever(embedding_provider=mock_provider)
-
-    segments = [
-        {"segment_id": "1", "speaker": "A", "start": 0.0, "end": 5.0, "text": "Đoạn thông tin quan trọng."},
-        {"segment_id": "2", "speaker": "B", "start": 6.0, "end": 10.0, "text": "Đoạn bình thường không có từ khóa."},
-    ]
-
-    results = await retriever.retrieve(query="nội dung quan trọng", segments=segments, top_k=1)
-    assert len(results) == 1
-    assert results[0]["segment_id"] == "1"

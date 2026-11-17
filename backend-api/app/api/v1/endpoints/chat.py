@@ -26,5 +26,5 @@ async def ask_question(
     service: ChatServiceDep,
 ) -> ChatMessageResponse:
     """Ask a question about a meeting and receive an answer with citations."""
-    assistant_msg = await service.ask_question(meeting.id, actor.user_id, payload.query)
+    assistant_msg = await service.ask_question(meeting, actor.user_id, payload.query)
     return ChatMessageResponse.model_validate(assistant_msg)

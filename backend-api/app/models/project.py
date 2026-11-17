@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,6 +9,7 @@ from app.core.clock import utc_now
 from app.core.database import Base
 from app.domain.enums import ProjectRole
 from app.models.constraints import enum_check
+from app.models.types import UTCDateTime
 
 
 class ProjectModel(Base):
@@ -24,10 +25,14 @@ class ProjectModel(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, onupdate=utc_now, nullable=False
+        UTCDateTime,
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=func.now(),
+        nullable=False,
     )
 
     owner = relationship("UserModel", back_populates="projects_owned")
@@ -66,7 +71,7 @@ class ProjectMemberModel(Base):
         String(50), default="viewer", nullable=False
     )  # owner, editor, viewer
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
     project = relationship("ProjectModel", back_populates="members")
@@ -97,7 +102,7 @@ class ProjectMeetingModel(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     added_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
     project = relationship("ProjectModel", back_populates="meetings")

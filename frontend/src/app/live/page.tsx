@@ -2,19 +2,9 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Mic,
-  MicOff,
-  Radio,
-  Square,
-  Play,
-  RotateCcw,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Loader2,
-} from "lucide-react";
-import { fetchApi } from "@/lib/api";
+import { Mic, Radio, Square, AlertCircle, Loader2 } from "lucide-react";
+import { useCreateMeeting, useUploadRecording } from "@/hooks/useMeetings";
+import { getErrorMessage } from "@/lib/api";
 import { formatDuration } from "@/lib/utils";
 
 export default function LiveMeetingPage() {
@@ -24,11 +14,10 @@ export default function LiveMeetingPage() {
   const [isPaused, setIsPaused] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [meetingId, setMeetingId] = useState<string | null>(null);
-  const [liveTranscripts, setLiveTranscripts] = useState<
-    { speaker: string; text: string; time: number }[]
-  >([]);
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const createMeeting = useCreateMeeting();
+  const uploadRecording = useUploadRecording();
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -48,6 +37,7 @@ export default function LiveMeetingPage() {
   }, [isRecording, isPaused]);
 
   const startRecording = async () => {
+    setErrorMessage(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -60,27 +50,21 @@ export default function LiveMeetingPage() {
         }
       };
 
-      mediaRecorder.onstop = async () => {
-        const fullBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-        setAudioBlob(fullBlob);
-      };
-
       // Create meeting in backend
       const title =
         meetingTitle.trim() ||
         `Ghi Âm Trực Tiếp ${new Date().toLocaleTimeString("vi-VN")}`;
-      const res = await fetchApi<{ id: string }>("/meetings", {
-        method: "POST",
-        body: JSON.stringify({ title }),
-      });
-      setMeetingId(res.id);
+      const meeting = await createMeeting.mutateAsync(title);
+      setMeetingId(meeting.id);
 
       mediaRecorder.start(1000);
       setIsRecording(true);
       setIsPaused(false);
       setElapsedSeconds(0);
-    } catch (err: any) {
-      alert("Không thể truy cập microphone: " + (err.message || "Vui lòng cấp quyền"));
+    } catch (error: unknown) {
+      setErrorMessage(
+        getErrorMessage(error, "Không thể bắt đầu ghi âm. Vui lòng cấp quyền microphone.")
+      );
     }
   };
 
@@ -108,18 +92,16 @@ export default function LiveMeetingPage() {
         return;
       }
       try {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const formData = new FormData();
-        formData.append("file", blob, `live_recording_${meetingId}.webm`);
-
-        await fetchApi(`/audio/meetings/${meetingId}/upload`, {
-          method: "POST",
-          body: formData,
+        const recording = new Blob(chunksRef.current, { type: "audio/webm" });
+        await uploadRecording.mutateAsync({
+          meetingId,
+          recording,
+          fileName: `live_recording_${meetingId}.webm`,
         });
 
         router.push(`/meetings/${meetingId}`);
-      } catch (err: any) {
-        alert(err.message || "Lỗi tải lên đoạn ghi âm trực tiếp.");
+      } catch (error: unknown) {
+        setErrorMessage(getErrorMessage(error, "Không thể tải lên bản ghi âm."));
         setIsFinalizing(false);
       }
     }, 600);
@@ -130,33 +112,37 @@ export default function LiveMeetingPage() {
       <div className="pb-4 border-b border-slate-200 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">
-            Phòng Thu Âm Trực Tiếp
+            Thu Âm Trực Tiếp
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Ghi âm thời gian thực từ microphone với AI phân tích tự động
-          </p>
         </div>
 
         {isRecording && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold animate-pulse">
             <Radio className="w-3.5 h-3.5 text-rose-600" />
-            <span>ĐANG GHI ÂM</span>
+            <span>Đang Ghi Âm</span>
           </div>
         )}
       </div>
+
+      {errorMessage && (
+        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-800 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm text-center space-y-6">
         {!isRecording ? (
           <div className="max-w-md mx-auto space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5 text-left">
-                Tiêu Đề Phiên Ghi Âm
+                Tiêu Đề
               </label>
               <input
                 type="text"
                 value={meetingTitle}
                 onChange={(e) => setMeetingTitle(e.target.value)}
-                placeholder="Ví dụ: Thảo Luận Kỹ Thuật Dự Án"
+                placeholder="Thảo luận kỹ thuật dự án"
                 className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 focus:border-emerald-600"
               />
             </div>
@@ -178,8 +164,8 @@ export default function LiveMeetingPage() {
               <div className="text-5xl font-mono font-extrabold text-slate-900 tracking-wider">
                 {formatDuration(elapsedSeconds)}
               </div>
-              <span className="text-xs font-medium text-slate-500 mt-2">
-                {isPaused ? "Đang tạm dừng thu âm" : "Đang thu âm liên tục..."}
+              <span className="text-sm font-medium text-slate-600 mt-2">
+                {isPaused ? "Tạm dừng" : "Đang thu"}
               </span>
             </div>
 
@@ -200,12 +186,12 @@ export default function LiveMeetingPage() {
                 {isFinalizing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Đang Hoàn Tất & Xử Lý...</span>
+                    <span>Đang Xử Lý</span>
                   </>
                 ) : (
                   <>
                     <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>Dừng & Phân Tích AI</span>
+                    <span>Dừng & Xử Lý</span>
                   </>
                 )}
               </button>

@@ -90,6 +90,22 @@ services:
       - ./backend-api:/app
       - meeting_storage:/tmp/meeting_storage
 
+  celery-beat:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: meeting_celery_beat
+    restart: always
+    command: celery -A app.workers.celery_app.celery_app beat --loglevel=info
+    environment:
+      - ENVIRONMENT=development
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend-api:/app
+
   ai-service:
     build:
       context: ./ai-service
@@ -111,6 +127,8 @@ services:
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN:-development-only-ai-service-token}
       - STORAGE_ROOT=/tmp/meeting_storage
+      - BACKEND_API_URL=http://backend-api:8000
+      - AGENT_CHECKPOINT_DB_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
     depends_on:
       postgres:
         condition: service_healthy

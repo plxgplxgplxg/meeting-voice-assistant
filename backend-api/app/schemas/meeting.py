@@ -31,6 +31,8 @@ class MeetingResponse(MeetingBase):
     share_permission: str = "viewer"
     is_deleted: bool = False
     summary_status: str = "none"
+    index_status: str = "none"
+    transcript_revision: int = 0
     failure_stage: str | None = None
     failure_reason: str | None = None
     is_demo: bool = False

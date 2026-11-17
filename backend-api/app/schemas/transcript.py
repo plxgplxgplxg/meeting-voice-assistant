@@ -32,4 +32,5 @@ class TranscriptSegmentResponse(BaseModel):
     end_time: float
     content: str
     sequence_order: int
+    version: int = 1
     created_at: datetime

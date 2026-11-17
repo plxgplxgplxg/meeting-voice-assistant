@@ -22,6 +22,7 @@ DEFAULT_PLANS: tuple[dict[str, Any], ...] = (
             "max_meetings": 5,
             "export_formats": ["txt", "json"],
             "rag_questions": 20,
+            "agent_tools": False,
             "priority_gpu": False,
         },
     },
@@ -36,6 +37,7 @@ DEFAULT_PLANS: tuple[dict[str, Any], ...] = (
             "max_meetings": "unlimited",
             "export_formats": ["docx", "txt", "srt", "vtt", "json"],
             "rag_questions": "unlimited",
+            "agent_tools": True,
             "priority_gpu": True,
             "speaker_diarization": True,
         },
@@ -51,6 +53,7 @@ DEFAULT_PLANS: tuple[dict[str, Any], ...] = (
             "max_meetings": "unlimited",
             "export_formats": ["docx", "txt", "srt", "vtt", "json"],
             "rag_questions": "unlimited",
+            "agent_tools": True,
             "priority_gpu": True,
             "speaker_diarization": True,
             "workspace_collaboration": True,
@@ -94,8 +97,13 @@ class PlanService:
                 existing[new_slug] = legacy
 
         for spec in DEFAULT_PLANS:
-            if spec["slug"] not in existing:
+            current = existing.get(spec["slug"])
+            if current is None:
                 self.session.add(PlanConfigModel(currency="VND", billing_interval="monthly", **spec))
+                continue
+            missing = {k: v for k, v in spec["features"].items() if k not in current.features}
+            if missing:
+                current.features = {**current.features, **missing}
         await self.session.flush()
 
     async def list_active_plans(self) -> Sequence[PlanConfigModel]:
@@ -132,5 +140,21 @@ class PlanService:
             raise QuotaExceededError(
                 f"Export format '{export_format}' is not included in the {plan.name} plan. "
                 "Please upgrade to use it.",
+                code="PLAN_FEATURE_REQUIRED",
+            )
+
+    def assert_agent_allowed(self, plan: PlanConfigModel) -> None:
+        """Ensure a plan includes the assistant's write tools and artifacts.
+
+        Args:
+            plan: Plan of the requesting user.
+
+        Raises:
+            QuotaExceededError: With code ``PLAN_FEATURE_REQUIRED`` on plans without agent tools.
+        """
+        if not plan.features.get("agent_tools"):
+            raise QuotaExceededError(
+                f"Assistant edits and generated documents are not included in the {plan.name} plan. "
+                "Please upgrade to use them.",
                 code="PLAN_FEATURE_REQUIRED",
             )

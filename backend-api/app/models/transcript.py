@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.clock import utc_now
 from app.core.database import Base
+from app.models.types import UTCDateTime
 
 
 class TranscriptSegmentModel(Base):
@@ -28,8 +29,9 @@ class TranscriptSegmentModel(Base):
     end_time: Mapped[float] = mapped_column(Float, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     sequence_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utc_now, nullable=False
+        UTCDateTime, default=utc_now, server_default=func.now(), nullable=False
     )
 
     meeting = relationship("MeetingModel", back_populates="segments")

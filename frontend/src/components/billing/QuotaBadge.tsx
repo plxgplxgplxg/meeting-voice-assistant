@@ -1,50 +1,30 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Zap, Clock } from "lucide-react";
-import { fetchApi } from "@/lib/api";
+import React, { useState } from "react";
+import { Zap } from "lucide-react";
+import { useSubscription } from "@/hooks/useSubscription";
 import { useAuth } from "@/lib/auth-context";
+import type { Subscription } from "@/types/api";
 import { PricingModal } from "./PricingModal";
 
-interface QuotaSummary {
-  id: string;
-  plan_slug: string;
-  plan_name: string;
-  status: string;
-  current_period_end: string;
-  total_duration_limit_minutes: number;
-  used_duration_minutes: number;
-  remaining_duration_minutes: number;
-}
+const FREE_PLAN_FALLBACK: Subscription = {
+  id: "fallback",
+  plan_slug: "free",
+  plan_name: "Gói Miễn Phí",
+  status: "active",
+  current_period_end: "",
+  total_duration_limit_minutes: 60,
+  used_duration_minutes: 0,
+  remaining_duration_minutes: 60,
+};
 
 export function QuotaBadge() {
   const { user } = useAuth();
-  const [quota, setQuota] = useState<QuotaSummary | null>(null);
+  const subscription = useSubscription();
   const [isPricingOpen, setIsPricingOpen] = useState(false);
 
-  const fetchQuota = async () => {
-    if (!user) return;
-    try {
-      const data = await fetchApi<QuotaSummary>("/plans/my-subscription");
-      setQuota(data);
-    } catch {
-      // Default to free quota indicator
-      setQuota({
-        plan_slug: "free",
-        plan_name: "Gói Miễn Phí",
-        id: "fallback",
-        current_period_end: "",
-        total_duration_limit_minutes: 60,
-        used_duration_minutes: 0,
-        remaining_duration_minutes: 60,
-        status: "active",
-      });
-    }
-  };
-
-  useEffect(() => {
-    fetchQuota();
-  }, [user]);
+  const quota =
+    subscription.data ?? (subscription.isError ? FREE_PLAN_FALLBACK : null);
 
   if (!user || !quota) return null;
 
@@ -56,7 +36,7 @@ export function QuotaBadge() {
       <button
         onClick={() => setIsPricingOpen(true)}
         className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 transition shadow-sm text-left group"
-        title="Bấm để xem bảng giá và nâng cấp"
+        title="Bảng giá"
       >
         <div
           className={`p-1 rounded-lg ${
@@ -71,12 +51,8 @@ export function QuotaBadge() {
         </div>
 
         <div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-800">
-              {quota.plan_name}
-            </span>
-          </div>
-          <div className="text-[11px] font-medium text-slate-500">
+          <div className="text-xs font-bold text-slate-800">{quota.plan_name}</div>
+          <div className="text-xs font-medium text-slate-600">
             {isUnlimited ? (
               <span>Không giới hạn</span>
             ) : (
@@ -93,9 +69,6 @@ export function QuotaBadge() {
         isOpen={isPricingOpen}
         onClose={() => setIsPricingOpen(false)}
         currentPlanSlug={quota.plan_slug}
-        onPlanUpgraded={() => {
-          fetchQuota();
-        }}
       />
     </>
   );

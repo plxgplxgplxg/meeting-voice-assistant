@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Mic, Radio, LogIn, User } from "lucide-react";
 import "./globals.css";
-import { AuthProvider } from "@/lib/auth-context";
+import { AppProviders } from "@/components/providers/AppProviders";
 import { QuotaBadge } from "@/components/billing/QuotaBadge";
 
 export const metadata: Metadata = {
@@ -18,7 +18,7 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <body className="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col font-sans">
-        <AuthProvider>
+        <AppProviders>
           {/* Header Navigation */}
           <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-md">
             <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
@@ -75,7 +75,7 @@ export default function RootLayout({
           <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8">
             {children}
           </main>
-        </AuthProvider>
+        </AppProviders>
       </body>
     </html>
   );

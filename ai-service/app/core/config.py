@@ -37,6 +37,12 @@ class AISettings(BaseSettings):
     gemini_api_key: str = ""
     openai_api_key: str = ""
 
+    # Agent
+    backend_api_url: str = "http://backend-api:8000"
+    # ai-service-private conversation state (LangGraph checkpoints) in its own schema. Never business data.
+    agent_checkpoint_db_url: str = ""
+    agent_recursion_limit: int = 8
+
     # Embedding & Vector Database
     embedding_model_name: str = "intfloat/multilingual-e5-small"
     device: str = "cpu"
@@ -47,6 +53,23 @@ class AISettings(BaseSettings):
     whisper_model_size: str = "base"
     compute_type: str = "int8"
     huggingface_token: str = ""
+
+    @property
+    def llm_api_key(self) -> str:
+        """API key of the selected LLM provider."""
+        return self.gemini_api_key if self.llm_provider.lower() == "gemini" else self.openai_api_key
+
+    @property
+    def llm_model_name(self) -> str:
+        """Default chat model of the selected LLM provider."""
+        return "gemini-2.0-flash" if self.llm_provider.lower() == "gemini" else "gpt-4o-mini"
+
+    @property
+    def llm_base_url(self) -> str | None:
+        """OpenAI-compatible base URL for Gemini, or None to use OpenAI's default."""
+        if self.llm_provider.lower() == "gemini":
+            return "https://generativelanguage.googleapis.com/v1beta/openai/"
+        return None
 
     @property
     def is_production(self) -> bool:

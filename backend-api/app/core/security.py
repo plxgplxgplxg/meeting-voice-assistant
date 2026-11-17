@@ -1,4 +1,5 @@
 import re
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -114,3 +115,60 @@ def decode_jwt_token(token: str) -> dict[str, Any]:
         raise AuthenticationError(
             "Invalid or expired token.", code="INVALID_TOKEN"
         ) from exc
+
+
+AGENT_AUDIENCE = "agent"
+AGENT_TOKEN_TTL = timedelta(minutes=5)
+
+
+def create_agent_token(
+    user_id: uuid.UUID, meeting_id: uuid.UUID, conversation_id: uuid.UUID, token_version: int
+) -> str:
+    """Mint the short-lived token the AI service uses to call tools as the user.
+
+    The token is scoped to one meeting and one conversation and carries
+    ``aud="agent"``, so it cannot be used as an ordinary access token.
+
+    Args:
+        user_id: User the agent acts for.
+        meeting_id: The only meeting the token may touch.
+        conversation_id: Conversation the turn belongs to.
+        token_version: User's current token version, so a password change revokes it.
+
+    Returns:
+        Encoded JWT valid for five minutes.
+    """
+    return _encode_token(
+        {
+            "sub": str(user_id),
+            "aud": AGENT_AUDIENCE,
+            "scope": f"meeting:{meeting_id}",
+            "conv": str(conversation_id),
+            "tv": token_version,
+        },
+        "agent",
+        AGENT_TOKEN_TTL,
+    )
+
+
+def decode_agent_token(token: str) -> dict[str, Any]:
+    """Validate a delegated agent token, including its audience.
+
+    Args:
+        token: Encoded JWT.
+
+    Returns:
+        Decoded claims.
+
+    Raises:
+        AuthenticationError: If the token is invalid, expired, or not an agent token.
+    """
+    try:
+        claims = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm], audience=AGENT_AUDIENCE
+        )
+    except JWTError as exc:
+        raise AuthenticationError("Invalid or expired token.", code="INVALID_TOKEN") from exc
+    if claims.get("type") != "agent":
+        raise AuthenticationError("Invalid or expired token.", code="INVALID_TOKEN")
+    return claims

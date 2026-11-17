@@ -2,12 +2,9 @@ from datetime import UTC, datetime
 
 
 def utc_now() -> datetime:
-    """Return the current UTC time as a naive datetime.
-
-    Timestamps are stored as naive UTC until the timezone-aware migration
-    (roadmap T4.1) lands, so every caller shares one source of "now".
+    """Return the current time as a timezone-aware UTC datetime.
 
     Returns:
-        Naive datetime representing the current UTC instant.
+        Aware datetime in UTC, the single source of "now" for the backend.
     """
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)

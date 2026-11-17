@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import { User, Lock, CheckCircle2, AlertCircle, Shield } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { fetchApi, storeTokens } from "@/lib/api";
+import { getErrorMessage, storeTokens } from "@/lib/api";
+import { changePassword, updateProfile } from "@/lib/api/users";
 
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
@@ -28,14 +29,11 @@ export default function ProfilePage() {
     setIsUpdatingProfile(true);
 
     try {
-      await fetchApi("/users/me", {
-        method: "PATCH",
-        body: JSON.stringify({ full_name: fullName }),
-      });
+      await updateProfile(fullName);
       await refreshUser();
       setProfileMsg({ type: "success", text: "Cập nhật hồ sơ thành công." });
-    } catch (err: any) {
-      setProfileMsg({ type: "error", text: err.message || "Không thể cập nhật hồ sơ." });
+    } catch (error: unknown) {
+      setProfileMsg({ type: "error", text: getErrorMessage(error, "Không thể cập nhật hồ sơ.") });
     } finally {
       setIsUpdatingProfile(false);
     }
@@ -47,21 +45,13 @@ export default function ProfilePage() {
     setIsUpdatingPassword(true);
 
     try {
-      const result = await fetchApi<{
-        tokens: { access_token: string; refresh_token: string };
-      }>("/users/me/change-password", {
-        method: "POST",
-        body: JSON.stringify({
-          old_password: currentPassword,
-          new_password: newPassword,
-        }),
-      });
+      const result = await changePassword(currentPassword, newPassword);
       storeTokens(result.tokens);
       setPasswordMsg({ type: "success", text: "Đổi mật khẩu thành công." });
       setCurrentPassword("");
       setNewPassword("");
-    } catch (err: any) {
-      setPasswordMsg({ type: "error", text: err.message || "Mật khẩu hiện tại không chính xác." });
+    } catch (error: unknown) {
+      setPasswordMsg({ type: "error", text: getErrorMessage(error, "Mật khẩu hiện tại không chính xác.") });
     } finally {
       setIsUpdatingPassword(false);
     }

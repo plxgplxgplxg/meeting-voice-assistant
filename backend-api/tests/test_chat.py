@@ -1,12 +1,15 @@
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AIUnavailableError
-from app.models.chat import ChatMessageModel
+from app.models.agent import AgentMessageModel
 from app.models.transcript import TranscriptSegmentModel
-from tests.conftest import Account, FakeAIClient, MakeMeeting, RegisterUser
+from app.services.retrieval_service import RetrievedChunk
+from tests.conftest import Account, FakeAIClient, FakeRetriever, MakeMeeting, RegisterUser
 
 
 async def seed_segments(db: AsyncSession, meeting_id) -> TranscriptSegmentModel:
@@ -38,6 +41,7 @@ async def test_chat_answer_is_persisted_with_citations(
     make_meeting: MakeMeeting,
     db_session: AsyncSession,
     fake_ai: FakeAIClient,
+    fake_retriever: FakeRetriever,
 ) -> None:
     """A successful RAG answer is stored and returned with its citations."""
     owner = await register_user("owner@example.com")
@@ -51,6 +55,12 @@ async def test_chat_answer_is_persisted_with_citations(
         "quote": segment.content,
     }
     fake_ai.answer = ("Theo [S01], hệ thống chuyển sang API-first.", [citation])
+    fake_retriever.chunks = [
+        RetrievedChunk(
+            id=uuid.uuid4(), chunk_index=0, speaker_label="Linh", start_time=0.0, end_time=15.0,
+            text=segment.content, segment_ids=[segment.id], score=0.9,
+        )
+    ] * 8
 
     response = await client.post(
         f"/api/v1/meetings/{meeting.id}/chat",
@@ -62,7 +72,9 @@ async def test_chat_answer_is_persisted_with_citations(
     assert body["role"] == "assistant"
     assert body["status"] == "ok"
     assert body["citations"] == [citation]
-    assert len(fake_ai.queries[0]["segments"]) == 2
+    assert len(fake_ai.queries[0]["chunks"]) == 5
+    assert fake_ai.queries[0]["chunks"][0]["segment_id"] == str(segment.id)
+    assert fake_retriever.searches[0][1:] == ("Kiến trúc mới là gì?", 5)
 
     history = await client.get(
         f"/api/v1/meetings/{meeting.id}/chat/messages", headers=owner.headers
@@ -93,7 +105,7 @@ async def test_ai_failure_returns_503_without_fabricated_answer(
     assert response.json()["error"]["code"] == "AI_UNAVAILABLE"
 
     messages = (
-        await db_session.execute(select(ChatMessageModel).order_by(ChatMessageModel.created_at))
+        await db_session.execute(select(AgentMessageModel).order_by(AgentMessageModel.created_at))
     ).scalars().all()
     assert [(m.role, m.status) for m in messages] == [("user", "ok"), ("assistant", "error")]
     assert "API-first" not in messages[1].content
@@ -126,3 +138,18 @@ async def test_chat_history_is_private_per_user(
     )
     assert seen_by_colleague.status_code == 200
     assert seen_by_colleague.json() == []
+
+
+@pytest.mark.asyncio
+async def test_asking_before_the_meeting_is_indexed_is_a_conflict(
+    client: AsyncClient, register_user: RegisterUser, make_meeting: MakeMeeting
+) -> None:
+    owner = await register_user("owner@example.com")
+    meeting = await make_meeting(owner.id, status="transcribing")
+
+    response = await client.post(
+        f"/api/v1/meetings/{meeting.id}/chat", headers=owner.headers, json={"query": "x"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "INDEX_NOT_READY"

@@ -24,5 +24,6 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     citations: list[dict[str, Any]]
+    tool_calls: list[dict[str, Any]] = []
     status: str = "ok"
     created_at: datetime

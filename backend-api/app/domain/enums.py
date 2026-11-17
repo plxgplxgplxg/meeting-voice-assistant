@@ -83,3 +83,31 @@ class MeetingStatus(StrEnum):
     INDEXING = "indexing"
     READY = "ready"
     FAILED = "failed"
+
+
+class IndexStatus(StrEnum):
+    """State of the retrieval index for a meeting."""
+
+    NONE = "none"
+    PENDING = "pending"
+    READY = "ready"
+    STALE = "stale"
+    FAILED = "failed"
+
+
+class JobKind(StrEnum):
+    """Kind of background processing job."""
+
+    TRANSCRIBE = "transcribe"
+    SUMMARIZE = "summarize"
+    INDEX = "index"
+    AGENT_ARTIFACT = "agent_artifact"
+
+
+class JobStatus(StrEnum):
+    """Lifecycle state of a processing job."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"

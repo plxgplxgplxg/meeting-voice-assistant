@@ -117,6 +117,25 @@ services:
     volumes:
       - meeting_storage:/tmp/meeting_storage
 
+  celery-beat:
+    build:
+      context: ./backend-api
+      dockerfile: Dockerfile
+    container_name: meeting_celery_beat
+    restart: always
+    command: celery -A app.workers.celery_app.celery_app beat --loglevel=info
+    environment:
+      - ENVIRONMENT=production
+      - APP_DEBUG=false
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env}
+      - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN:?Set AI_SERVICE_TOKEN in .env}
+      - SEPAY_WEBHOOK_API_KEY=${SEPAY_WEBHOOK_API_KEY:?Set SEPAY_WEBHOOK_API_KEY in .env}
+      - CORS_ORIGINS=${CORS_ORIGINS:?Set CORS_ORIGINS in .env}
+    depends_on:
+      redis:
+        condition: service_healthy
+
   ai-service:
     build:
       context: ./ai-service
@@ -138,6 +157,8 @@ services:
       - DEVICE=${DEVICE:-cpu}
       - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN:?Set AI_SERVICE_TOKEN in .env}
       - STORAGE_ROOT=/tmp/meeting_storage
+      - BACKEND_API_URL=http://backend-api:8000
+      - AGENT_CHECKPOINT_DB_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
     depends_on:
       postgres:
         condition: service_healthy
