@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Share2,
@@ -15,9 +16,15 @@ import {
   Copy,
   Check,
   AlertCircle,
+  RotateCcw,
 } from "lucide-react";
-import { fetchApi } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
+import { buildBackendUrl, fetchApi, setShareToken } from "@/lib/api";
+import {
+  MeetingStatus,
+  isProcessingStatus,
+  statusBadgeClasses,
+  statusLabel,
+} from "@/lib/meeting-status";
 import {
   SpeakerTimeline,
   SpeakerTimelineHandle,
@@ -30,7 +37,10 @@ import { ExportDropdown } from "@/components/meeting/ExportDropdown";
 interface MeetingDetail {
   id: string;
   title: string;
-  status: "created" | "processing" | "completed" | "failed";
+  status: MeetingStatus;
+  is_demo?: boolean;
+  failure_stage?: string | null;
+  failure_reason?: string | null;
   duration_seconds: number;
   created_at: string;
   created_by?: string;
@@ -57,7 +67,8 @@ export default function MeetingDetailPage({
   params: { id: string };
 }) {
   const meetingId = params.id;
-  const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const shareToken = searchParams.get("share");
   const timelineRef = useRef<SpeakerTimelineHandle | null>(null);
 
   const [meeting, setMeeting] = useState<MeetingDetail | null>(null);
@@ -75,19 +86,25 @@ export default function MeetingDetailPage({
   const [shareLink, setShareLink] = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
 
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+
   const loadMeetingData = async () => {
     try {
-      const m = await fetchApi<MeetingDetail>(`/meetings/${meetingId}`);
+      const shareQuery = shareToken
+        ? `?share=${encodeURIComponent(shareToken)}`
+        : "";
+      const m = await fetchApi<MeetingDetail>(
+        `/meetings/${meetingId}${shareQuery}`
+      );
       setMeeting(m);
 
-      const segs = await fetchApi<TimelineSegment[]>(
-        `/meetings/${meetingId}/transcripts`
-      );
+      const segs = await fetchApi<TimelineSegment[]>(`/meetings/${meetingId}/transcript`);
       setSegments(segs);
 
       try {
         const sum = await fetchApi<SummaryData>(
-          `/meetings/${meetingId}/summaries`
+          `/meetings/${meetingId}/summary`
         );
         setSummary(sum);
       } catch {
@@ -96,7 +113,7 @@ export default function MeetingDetailPage({
 
       try {
         const actions = await fetchApi<ActionItem[]>(
-          `/meetings/${meetingId}/summaries/action-items`
+          `/meetings/${meetingId}/action-items`
         );
         setActionItems(actions);
       } catch {
@@ -110,12 +127,41 @@ export default function MeetingDetailPage({
   };
 
   useEffect(() => {
+    setShareToken(shareToken);
     loadMeetingData();
-  }, [meetingId]);
+    return () => setShareToken(null);
+  }, [meetingId, shareToken]);
+
+  const loadAudioUrl = async () => {
+    try {
+      const res = await fetchApi<{ url: string }>(
+        `/meetings/${meetingId}/audio/stream-url`
+      );
+      setAudioUrl(buildBackendUrl(res.url));
+    } catch {
+      setAudioUrl(null);
+    }
+  };
+
+  useEffect(() => {
+    if (meeting?.status === "ready") loadAudioUrl();
+  }, [meeting?.status, meetingId]);
+
+  const handleRetryProcessing = async () => {
+    setIsRetrying(true);
+    try {
+      await fetchApi(`/meetings/${meetingId}/reprocess`, { method: "POST" });
+      await loadMeetingData();
+    } catch (err: any) {
+      alert(err.message || "Không thể xử lý lại cuộc họp.");
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   // Polling if meeting is processing
   useEffect(() => {
-    if (!meeting || meeting.status !== "processing") return;
+    if (!meeting || !isProcessingStatus(meeting.status)) return;
     const interval = setInterval(() => {
       loadMeetingData();
     }, 4000);
@@ -128,7 +174,7 @@ export default function MeetingDetailPage({
   };
 
   const handleUpdateSegment = async (segmentId: string, newContent: string) => {
-    await fetchApi(`/transcripts/${segmentId}`, {
+    await fetchApi(`/meetings/${meetingId}/transcript/segments/${segmentId}`, {
       method: "PATCH",
       body: JSON.stringify({ content: newContent }),
     });
@@ -138,11 +184,11 @@ export default function MeetingDetailPage({
   };
 
   const handleRenameSpeaker = async (oldSpeaker: string, newSpeaker: string) => {
-    await fetchApi(`/transcripts/meetings/${meetingId}/rename-speaker`, {
+    await fetchApi(`/meetings/${meetingId}/transcript/rename-speaker`, {
       method: "POST",
       body: JSON.stringify({
-        old_speaker: oldSpeaker,
-        new_speaker: newSpeaker,
+        old_speaker_label: oldSpeaker,
+        new_speaker_label: newSpeaker,
       }),
     });
     setSegments((prev) =>
@@ -154,7 +200,10 @@ export default function MeetingDetailPage({
 
   const handleDeleteSegment = async (segmentId: string) => {
     if (!confirm("Bạn có chắc chắn muốn xóa đoạn này không?")) return;
-    await fetchApi(`/transcripts/${segmentId}`, { method: "DELETE" });
+    await fetchApi(`/meetings/${meetingId}/transcript/delete-segments`, {
+      method: "POST",
+      body: JSON.stringify({ segment_ids: [segmentId] }),
+    });
     setSegments((prev) => prev.filter((s) => s.id !== segmentId));
   };
 
@@ -225,20 +274,15 @@ export default function MeetingDetailPage({
               <h1 className="text-xl font-bold text-slate-900 tracking-tight">
                 {meeting.title}
               </h1>
+              {meeting.is_demo && (
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-800">
+                  Dữ Liệu Mẫu
+                </span>
+              )}
               <span
-                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-                  meeting.status === "completed"
-                    ? "bg-emerald-100 text-emerald-800"
-                    : meeting.status === "processing"
-                    ? "bg-amber-100 text-amber-800 animate-pulse"
-                    : "bg-slate-100 text-slate-700"
-                }`}
+                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${statusBadgeClasses(meeting.status)}`}
               >
-                {meeting.status === "completed"
-                  ? "Đã Xử Lý Xong"
-                  : meeting.status === "processing"
-                  ? "Đang Xử Lý AI..."
-                  : "Khởi Tạo"}
+                {statusLabel(meeting.status)}
               </span>
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
@@ -270,7 +314,7 @@ export default function MeetingDetailPage({
       </div>
 
       {/* Processing Live Banner (clean-minimalist Rule 4) */}
-      {meeting.status === "processing" && (
+      {isProcessingStatus(meeting.status) && (
         <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 flex items-center justify-between shadow-xs">
           <div className="flex items-center gap-3">
             <span className="relative flex h-3 w-3">
@@ -279,21 +323,47 @@ export default function MeetingDetailPage({
             </span>
             <div>
               <h4 className="text-xs font-bold text-amber-950">
-                Pipeline AI Đang Phân Tích Âm Thanh
+                {statusLabel(meeting.status)}
               </h4>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                Các phân đoạn và tóm tắt sẽ tự động cập nhật ngay khi hoàn tất.
-              </p>
             </div>
           </div>
           <Loader2 className="w-4 h-4 animate-spin text-amber-700" />
         </div>
       )}
 
+      {meeting.status === "failed" && (
+        <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200 flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-4 h-4 text-rose-600" />
+            <div>
+              <h4 className="text-xs font-bold text-rose-950">Xử Lý Thất Bại</h4>
+              {meeting.failure_reason && (
+                <p className="text-[11px] text-rose-800 mt-0.5">
+                  {meeting.failure_reason}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={handleRetryProcessing}
+            disabled={isRetrying}
+            className="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-rose-600 text-white hover:bg-rose-700 transition shadow-xs flex items-center gap-1.5 disabled:opacity-60"
+          >
+            {isRetrying ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="w-3.5 h-3.5" />
+            )}
+            <span>Thử Lại</span>
+          </button>
+        </div>
+      )}
+
       {/* Audio Timeline Scrubber */}
       <SpeakerTimeline
         ref={timelineRef}
-        audioUrl={`http://localhost:8000/api/v1/audio/meetings/${meeting.id}/stream`}
+        audioUrl={audioUrl}
+        onAudioError={loadAudioUrl}
         durationSec={meeting.duration_seconds}
         segments={segments}
         currentTime={currentTime}

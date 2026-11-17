@@ -1,10 +1,6 @@
-from typing import Annotated
-from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, status
 
-from app.core.database import get_db_session
-from app.core.security import get_current_user
-from app.models.user import UserModel
+from app.api.deps import CurrentUser, DbSession
 from app.schemas.auth import (
     RefreshTokenRequest,
     TokenResponse,
@@ -16,8 +12,6 @@ from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
-CurrentUser = Annotated[UserModel, Depends(get_current_user)]
 
 
 @router.post(
@@ -26,7 +20,7 @@ CurrentUser = Annotated[UserModel, Depends(get_current_user)]
     status_code=status.HTTP_201_CREATED,
 )
 async def register_user(
-    payload: UserRegisterRequest, db: DatabaseSession
+    payload: UserRegisterRequest, db: DbSession
 ) -> dict:
     """Register a new user account with default Free quota."""
     service = AuthService(db)
@@ -39,7 +33,7 @@ async def register_user(
 
 @router.post("/login", response_model=TokenResponse)
 async def login_user(
-    payload: UserLoginRequest, db: DatabaseSession
+    payload: UserLoginRequest, db: DbSession
 ) -> TokenResponse:
     """Authenticate credentials and obtain JWT tokens."""
     service = AuthService(db)
@@ -49,7 +43,7 @@ async def login_user(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
-    payload: RefreshTokenRequest, db: DatabaseSession
+    payload: RefreshTokenRequest, db: DbSession
 ) -> TokenResponse:
     """Obtain a new access token using a refresh token."""
     service = AuthService(db)

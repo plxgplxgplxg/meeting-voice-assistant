@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -23,4 +24,5 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     citations: list[dict[str, Any]]
+    status: str = "ok"
     created_at: datetime

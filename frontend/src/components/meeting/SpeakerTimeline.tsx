@@ -40,6 +40,7 @@ interface SpeakerTimelineProps {
   currentTime: number;
   onTimeUpdate: (seconds: number) => void;
   onSegmentClick?: (segment: TimelineSegment) => void;
+  onAudioError?: () => void;
 }
 
 const SPEAKER_PALETTE: string[] = [
@@ -64,6 +65,7 @@ export const SpeakerTimeline = forwardRef<
     currentTime,
     onTimeUpdate,
     onSegmentClick,
+    onAudioError,
   },
   ref
 ) {
@@ -150,6 +152,7 @@ export const SpeakerTimeline = forwardRef<
           preload="metadata"
           onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime)}
           onEnded={() => setIsPlaying(false)}
+          onError={() => onAudioError?.()}
         />
       )}
 

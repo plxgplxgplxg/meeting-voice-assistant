@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Send, Bot, User, Sparkles, Clock, Loader2 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { formatDuration } from "@/lib/utils";
 
 interface Citation {
   segment_id?: string;
-  speaker?: string;
+  speaker_label?: string;
   start_time: number;
   end_time?: number;
-  snippet?: string;
+  quote?: string;
 }
 
 interface ChatMessage {
@@ -39,25 +39,25 @@ export function AssistantChatPane({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
 
-  // Initialize or retrieve chat session
-  const ensureSession = async (): Promise<string> => {
-    if (sessionId) return sessionId;
-    try {
-      const session = await fetchApi<{ id: string }>(
-        `/chat/meetings/${meetingId}/sessions`,
-        { method: "POST" }
-      );
-      setSessionId(session.id);
-      return session.id;
-    } catch {
-      // Mock fallback session ID
-      const fallback = `sess_${meetingId.slice(0, 8)}`;
-      setSessionId(fallback);
-      return fallback;
-    }
-  };
+    const loadHistory = async (): Promise<void> => {
+      try {
+        const history = await fetchApi<ChatMessage[]>(
+          `/chat/${meetingId}/messages`
+        );
+        if (active) setMessages(history);
+      } catch {
+        if (active) setMessages([]);
+      }
+    };
+
+    loadHistory();
+    return () => {
+      active = false;
+    };
+  }, [meetingId]);
 
   const handleSendMessage = async (textToSend?: string) => {
     const text = textToSend || question;
@@ -73,20 +73,23 @@ export function AssistantChatPane({
     setIsLoading(true);
 
     try {
-      const activeSessionId = await ensureSession();
       const response = await fetchApi<{
-        answer: string;
+        id: string;
+        role: "assistant";
+        content: string;
         citations: Citation[];
-      }>(`/chat/sessions/${activeSessionId}/messages`, {
+        created_at: string;
+      }>(`/chat/${meetingId}`, {
         method: "POST",
-        body: JSON.stringify({ question: text.trim() }),
+        body: JSON.stringify({ query: text.trim() }),
       });
 
       const assistantMsg: ChatMessage = {
-        id: `ast_${Date.now()}`,
+        id: response.id,
         role: "assistant",
-        content: response.answer,
+        content: response.content,
         citations: response.citations || [],
+        created_at: response.created_at,
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: any) {
@@ -189,7 +192,7 @@ export function AssistantChatPane({
                         >
                           <Clock className="w-3 h-3 text-emerald-600" />
                           <span>
-                            {c.speaker ? `${c.speaker} • ` : ""}
+                            {c.speaker_label ? `${c.speaker_label} • ` : ""}
                             {formatDuration(c.start_time)}
                           </span>
                         </button>

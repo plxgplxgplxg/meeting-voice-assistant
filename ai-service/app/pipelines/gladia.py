@@ -1,10 +1,12 @@
 import asyncio
 import os
 from typing import Any
+
 import httpx
 import structlog
 
 from app.core.config import ai_settings
+from app.core.errors import ProviderError, ProviderNotConfiguredError
 from app.pipelines.protocols import AudioProcessorProtocol
 
 logger = structlog.get_logger(__name__)
@@ -41,10 +43,13 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
         }
 
     async def upload_audio(self, audio_path: str) -> str:
-        """Upload a local audio file to Gladia temporary storage or return direct URL.
+        """Upload a local audio file to Gladia temporary storage.
+
+        Remote URLs are deliberately not accepted: the service only processes
+        files that were resolved inside the storage root.
 
         Args:
-            audio_path: Local filesystem path or remote HTTP/HTTPS URL.
+            audio_path: Local filesystem path of the recording.
 
         Returns:
             Hosted audio_url string for pre-recorded transcription.
@@ -53,10 +58,6 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
             FileNotFoundError: If the local audio file does not exist.
             RuntimeError: If upload request fails.
         """
-        if audio_path.startswith("http://") or audio_path.startswith("https://"):
-            logger.info("using_direct_audio_url", url=audio_path)
-            return audio_path
-
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found at: {audio_path}")
 
@@ -234,74 +235,35 @@ class GladiaAudioPipeline(AudioProcessorProtocol):
     ) -> list[dict[str, Any]]:
         """Orchestrate end-to-end transcription: upload -> submit job -> poll -> format.
 
-        If api_key is missing or engine is mock, returns graceful fallback demo segments.
-
         Args:
-            audio_path: Filesystem path to audio file.
+            audio_path: Filesystem path to the audio file.
             language: Spoken language code.
             min_speakers: Min speaker count hint.
             max_speakers: Max speaker count hint.
 
         Returns:
             List of standardized transcript segment dictionaries.
-        """
-        if not self.api_key or ai_settings.audio_pipeline_engine == "mock":
-            logger.warning("gladia_api_key_missing_or_mock", message="Using fallback demo transcript segments")
-            return [
-                {
-                    "segment_id": 0,
-                    "speaker": "SPEAKER_00",
-                    "start": 0.0,
-                    "end": 4.5,
-                    "start_ms": 0,
-                    "end_ms": 4500,
-                    "text": "Chào các bạn, hôm nay chúng ta bắt đầu phiên họp rà soát tiến độ và các yêu cầu kỹ thuật.",
-                    "confidence": 0.98,
-                    "words": [
-                        {"w": "Chào", "s": 0, "e": 350, "p": 0.99},
-                        {"w": "các", "s": 360, "e": 520, "p": 0.98},
-                        {"w": "bạn,", "s": 530, "e": 780, "p": 0.99},
-                        {"w": "hôm", "s": 850, "e": 1050, "p": 0.98},
-                        {"w": "nay", "s": 1060, "e": 1280, "p": 0.97},
-                        {"w": "chúng", "s": 1300, "e": 1500, "p": 0.99},
-                        {"w": "ta", "s": 1510, "e": 1680, "p": 0.99},
-                        {"w": "bắt", "s": 1720, "e": 1920, "p": 0.98},
-                        {"w": "đầu", "s": 1930, "e": 2150, "p": 0.98},
-                        {"w": "phiên", "s": 2200, "e": 2450, "p": 0.97},
-                        {"w": "họp.", "s": 2460, "e": 2800, "p": 0.98},
-                    ],
-                },
-                {
-                    "segment_id": 1,
-                    "speaker": "SPEAKER_01",
-                    "start": 5.0,
-                    "end": 10.2,
-                    "start_ms": 5000,
-                    "end_ms": 10200,
-                    "text": "Về phần kiến trúc hệ thống, backend đã chuyển sang API-first để tiết kiệm tài nguyên và tăng tốc độ xử lý.",
-                    "confidence": 0.96,
-                    "words": [
-                        {"w": "Về", "s": 5000, "e": 5200, "p": 0.97},
-                        {"w": "phần", "s": 5210, "e": 5400, "p": 0.96},
-                        {"w": "kiến", "s": 5420, "e": 5650, "p": 0.98},
-                        {"w": "trúc", "s": 5660, "e": 5900, "p": 0.98},
-                        {"w": "hệ", "s": 5950, "e": 6120, "p": 0.97},
-                        {"w": "thống,", "s": 6130, "e": 6450, "p": 0.98},
-                        {"w": "backend", "s": 6550, "e": 7100, "p": 0.95},
-                        {"w": "đã", "s": 7120, "e": 7300, "p": 0.97},
-                        {"w": "chuyển", "s": 7320, "e": 7650, "p": 0.98},
-                        {"w": "sang", "s": 7660, "e": 7900, "p": 0.98},
-                        {"w": "API-first.", "s": 7920, "e": 8600, "p": 0.96},
-                    ],
-                },
-            ]
 
-        audio_url = await self.upload_audio(audio_path)
-        job_id, result_url = await self.create_transcription_job(
-            audio_url=audio_url,
-            language=language,
-            min_speakers=min_speakers,
-            max_speakers=max_speakers,
-        )
-        result_data = await self.poll_transcription_result(result_url)
+        Raises:
+            ProviderNotConfiguredError: If no Gladia API key is configured.
+            FileNotFoundError: If the audio file does not exist.
+            ProviderError: If Gladia fails, errors, or times out.
+        """
+        if not self.api_key:
+            raise ProviderNotConfiguredError("ASR provider not configured")
+
+        try:
+            audio_url = await self.upload_audio(audio_path)
+            _, result_url = await self.create_transcription_job(
+                audio_url=audio_url,
+                language=language,
+                min_speakers=min_speakers,
+                max_speakers=max_speakers,
+            )
+            result_data = await self.poll_transcription_result(
+                result_url, max_wait_seconds=ai_settings.gladia_max_wait_seconds
+            )
+        except (RuntimeError, TimeoutError, httpx.HTTPError) as exc:
+            logger.error("gladia_pipeline_failed", error=str(exc))
+            raise ProviderError(f"ASR provider failed: {exc}") from exc
         return self.parse_utterances_to_segments(result_data)

@@ -1,73 +1,89 @@
 import uuid
-from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db_session
+from fastapi import APIRouter
+
+from app.api.deps import (
+    AccessPolicy,
+    ActorDep,
+    MeetingForEdit,
+    MeetingForView,
+    TranscriptServiceDep,
+)
+from app.domain.enums import Permission
 from app.schemas.transcript import (
     BulkRenameSpeakerRequest,
     DeleteSegmentsRequest,
     TranscriptSegmentResponse,
     TranscriptSegmentUpdate,
 )
-from app.services.transcript_service import TranscriptService
 
-router = APIRouter(prefix="/transcripts", tags=["Transcripts"])
+router = APIRouter(tags=["Transcripts"])
+legacy_router = APIRouter(
+    prefix="/transcripts", tags=["Transcripts (deprecated paths)"], deprecated=True
+)
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 
-
-@router.get("/{meeting_id}", response_model=list[TranscriptSegmentResponse])
+@router.get("/meetings/{meeting_id}/transcript", response_model=list[TranscriptSegmentResponse])
+@legacy_router.get("/{meeting_id}", response_model=list[TranscriptSegmentResponse])
 async def get_segments(
-    meeting_id: uuid.UUID, db: DatabaseSession
+    meeting: MeetingForView, service: TranscriptServiceDep
 ) -> list[TranscriptSegmentResponse]:
     """List chronological transcript segments for a meeting."""
-    service = TranscriptService(db)
-    segments = await service.get_segments_by_meeting(meeting_id)
+    segments = await service.get_segments_by_meeting(meeting.id)
     return [TranscriptSegmentResponse.model_validate(s) for s in segments]
 
 
-@router.patch("/segments/{segment_id}", response_model=TranscriptSegmentResponse)
+@router.patch(
+    "/meetings/{meeting_id}/transcript/segments/{segment_id}",
+    response_model=TranscriptSegmentResponse,
+)
 async def update_segment(
     segment_id: uuid.UUID,
     payload: TranscriptSegmentUpdate,
-    db: DatabaseSession,
+    meeting: MeetingForEdit,
+    service: TranscriptServiceDep,
 ) -> TranscriptSegmentResponse:
-    """Update text or speaker of a specific transcript segment."""
-    service = TranscriptService(db)
-    segment = await service.update_segment(segment_id, payload)
-    if not segment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Transcript segment with ID '{segment_id}' not found.",
-        )
+    """Update text or speaker of a transcript segment."""
+    segment = await service.update_segment(meeting.id, segment_id, payload)
     return TranscriptSegmentResponse.model_validate(segment)
 
 
-@router.post("/{meeting_id}/rename-speaker")
+@legacy_router.patch("/segments/{segment_id}", response_model=TranscriptSegmentResponse)
+async def update_segment_legacy(
+    segment_id: uuid.UUID,
+    payload: TranscriptSegmentUpdate,
+    actor: ActorDep,
+    policy: AccessPolicy,
+    service: TranscriptServiceDep,
+) -> TranscriptSegmentResponse:
+    """Deprecated: update a segment without the meeting id in the path."""
+    meeting_id = await service.get_segment_meeting_id(segment_id)
+    meeting = await policy.require(actor, meeting_id, Permission.EDIT)
+    segment = await service.update_segment(meeting.id, segment_id, payload)
+    return TranscriptSegmentResponse.model_validate(segment)
+
+
+@router.post("/meetings/{meeting_id}/transcript/rename-speaker")
+@legacy_router.post("/{meeting_id}/rename-speaker")
 async def bulk_rename_speaker(
-    meeting_id: uuid.UUID,
     payload: BulkRenameSpeakerRequest,
-    db: DatabaseSession,
+    meeting: MeetingForEdit,
+    service: TranscriptServiceDep,
 ) -> dict[str, int | str]:
     """Rename a speaker across all segments in this meeting."""
-    service = TranscriptService(db)
     affected = await service.bulk_rename_speaker(
-        meeting_id, payload.old_speaker_label, payload.new_speaker_label
+        meeting.id, payload.old_speaker_label, payload.new_speaker_label
     )
-    return {
-        "affected_segments": affected,
-        "new_speaker_label": payload.new_speaker_label,
-    }
+    return {"affected_segments": affected, "new_speaker_label": payload.new_speaker_label}
 
 
-@router.post("/{meeting_id}/delete-segments")
+@router.post("/meetings/{meeting_id}/transcript/delete-segments")
+@legacy_router.post("/{meeting_id}/delete-segments")
 async def delete_segments(
-    meeting_id: uuid.UUID,
     payload: DeleteSegmentsRequest,
-    db: DatabaseSession,
+    meeting: MeetingForEdit,
+    service: TranscriptServiceDep,
 ) -> dict[str, int]:
     """Delete multiple transcript segments."""
-    service = TranscriptService(db)
-    deleted = await service.delete_segments(meeting_id, payload.segment_ids)
+    deleted = await service.delete_segments(meeting.id, payload.segment_ids)
     return {"deleted_segments": deleted}

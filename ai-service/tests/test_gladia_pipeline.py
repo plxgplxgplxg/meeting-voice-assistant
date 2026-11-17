@@ -1,4 +1,6 @@
 import pytest
+
+from app.core.errors import ProviderNotConfiguredError
 from app.pipelines.gladia import GladiaAudioPipeline
 
 
@@ -61,11 +63,9 @@ def test_parse_utterances_to_segments() -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_audio_fallback_when_no_api_key() -> None:
-    """Ensure graceful fallback occurs when Gladia API key is empty."""
+async def test_process_audio_without_api_key_raises_instead_of_inventing_a_transcript() -> None:
+    """Without a Gladia key the pipeline fails explicitly and returns no demo segments."""
     pipeline = GladiaAudioPipeline(api_key="")
-    segments = await pipeline.process_audio(audio_path="dummy.wav")
-    assert len(segments) >= 2
-    assert "SPEAKER_00" in segments[0]["speaker"]
-    assert "words" in segments[0]
-    assert len(segments[0]["words"]) > 0
+    with pytest.raises(ProviderNotConfiguredError) as exc:
+        await pipeline.process_audio(audio_path="dummy.wav")
+    assert exc.value.message == "ASR provider not configured"

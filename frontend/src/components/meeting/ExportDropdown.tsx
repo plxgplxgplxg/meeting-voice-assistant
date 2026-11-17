@@ -65,7 +65,7 @@ export function ExportDropdown({
         .replace(/[^a-z0-9]/gi, "_")
         .slice(0, 30);
       const filename = `${sanitizedTitle}_${type}.${type}`;
-      await downloadFile(`/meetings/${meetingId}/export?type=${type}`, filename);
+      await downloadFile(`/meetings/${meetingId}/exports/${type}`, filename);
       setIsOpen(false);
     } catch (err: any) {
       alert(err.message || "Không thể tải tệp xuất biên bản.");

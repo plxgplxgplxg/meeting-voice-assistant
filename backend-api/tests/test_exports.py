@@ -1,96 +1,101 @@
-import uuid
-from datetime import datetime
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.meeting import MeetingModel
+from app.core.clock import utc_now
+from app.models.billing import PlanConfigModel
 from app.models.summary import ActionItemModel, SummaryModel
 from app.models.transcript import TranscriptSegmentModel
+from app.services.billing.subscription_service import SubscriptionService
+from tests.conftest import MakeMeeting, RegisterUser
+
+
+async def seed_content(db_session: AsyncSession, meeting_id) -> None:
+    db_session.add_all([
+        TranscriptSegmentModel(
+            meeting_id=meeting_id, speaker_label="Speaker 1", start_time=0.0, end_time=12.5,
+            content="Xin chào mọi người, hôm nay chúng ta họp tổng kết quý 1.", sequence_order=1,
+        ),
+        TranscriptSegmentModel(
+            meeting_id=meeting_id, speaker_label="Speaker 2", start_time=13.0, end_time=25.0,
+            content="Mục tiêu doanh số đã đạt 120% kế hoạch đề ra.", sequence_order=2,
+        ),
+        SummaryModel(
+            meeting_id=meeting_id,
+            executive_summary="Cuộc họp tổng kết kết quả kinh doanh quý 1 vượt chỉ tiêu.",
+            key_points=["Doanh số đạt 120% kế hoạch"],
+        ),
+        ActionItemModel(
+            meeting_id=meeting_id, description="Chuẩn bị báo cáo tài chính chi tiết",
+            assignee="Speaker 2", status="pending",
+        ),
+    ])
+    await db_session.flush()
 
 
 @pytest.mark.asyncio
-async def test_meeting_exports(client: AsyncClient, db_session: AsyncSession) -> None:
-    """Test DOCX, TXT, SRT, VTT, and JSON export formats for a meeting.
+async def test_free_plan_exports_txt_and_json_only(
+    client: AsyncClient, register_user: RegisterUser, make_meeting: MakeMeeting,
+    db_session: AsyncSession,
+) -> None:
+    """Free owners can export txt/json, while srt, vtt and docx need an upgrade."""
+    owner = await register_user("owner@example.com")
+    meeting = await make_meeting(owner.id)
+    await seed_content(db_session, meeting.id)
 
-    Args:
-        client: AsyncClient for API endpoints.
-        db_session: Database session fixture to seed meeting data.
-    """
-    # 1. Create a meeting with segments and summary
-    meeting_id = uuid.uuid4()
-    meeting = MeetingModel(
-        id=meeting_id,
-        title="Cuộc Họp Đánh Giá Quý 1",
-        status="completed",
-        duration_seconds=125.5,
-        created_at=datetime.utcnow(),
-    )
-    db_session.add(meeting)
+    txt = await client.get(f"/api/v1/meetings/{meeting.id}/exports/txt", headers=owner.headers)
+    assert txt.status_code == 200
+    assert "BIÊN BẢN CUỘC HỌP" in txt.text and "Xin chào mọi người" in txt.text
 
-    seg1 = TranscriptSegmentModel(
-        meeting_id=meeting_id,
-        speaker_label="Speaker 1",
-        start_time=0.0,
-        end_time=12.5,
-        content="Xin chào mọi người, hôm nay chúng ta họp tổng kết quý 1.",
-        sequence_order=0,
-    )
-    seg2 = TranscriptSegmentModel(
-        meeting_id=meeting_id,
-        speaker_label="Speaker 2",
-        start_time=13.0,
-        end_time=25.0,
-        content="Mục tiêu doanh số đã đạt 120% kế hoạch đề ra.",
-        sequence_order=1,
-    )
-    db_session.add_all([seg1, seg2])
-
-    summary = SummaryModel(
-        meeting_id=meeting_id,
-        executive_summary="Cuộc họp tổng kết kết quả kinh doanh quý 1 vượt chỉ tiêu.",
-        key_points=["Doanh số đạt 120% kế hoạch", "Đội ngũ hoàn thành đúng hạn"],
-    )
-    db_session.add(summary)
-
-    action = ActionItemModel(
-        meeting_id=meeting_id,
-        description="Chuẩn bị báo cáo tài chính chi tiết",
-        assignee="Speaker 2",
-        status="pending",
-    )
-    db_session.add(action)
-    await db_session.commit()
-
-    # 2. Test TXT export
-    txt_res = await client.get(f"/api/v1/meetings/{meeting_id}/export?type=txt")
-    assert txt_res.status_code == 200
-    assert "text/plain" in txt_res.headers["content-type"]
-    assert "BIÊN BẢN CUỘC HỌP" in txt_res.text
-    assert "Xin chào mọi người" in txt_res.text
-
-    # 3. Test SRT export
-    srt_res = await client.get(f"/api/v1/meetings/{meeting_id}/export?type=srt")
-    assert srt_res.status_code == 200
-    assert "00:00:00,000 --> 00:00:12,500" in srt_res.text
-    assert "[Speaker 1] Xin chào mọi người" in srt_res.text
-
-    # 4. Test VTT export
-    vtt_res = await client.get(f"/api/v1/meetings/{meeting_id}/export?type=vtt")
-    assert vtt_res.status_code == 200
-    assert "WEBVTT" in vtt_res.text
-    assert "00:00:00.000 --> 00:00:12.500" in vtt_res.text
-
-    # 5. Test JSON export
-    json_res = await client.get(f"/api/v1/meetings/{meeting_id}/export?type=json")
+    json_res = await client.get(f"/api/v1/meetings/{meeting.id}/exports/json", headers=owner.headers)
     assert json_res.status_code == 200
-    json_data = json_res.json()
-    assert json_data["meeting_id"] == str(meeting_id)
-    assert len(json_data["transcript"]) == 2
-    assert json_data["summary"] is not None
+    assert len(json_res.json()["transcript"]) == 2
 
-    # 6. Test DOCX export
-    docx_res = await client.get(f"/api/v1/meetings/{meeting_id}/export?type=docx")
-    assert docx_res.status_code == 200
-    assert "wordprocessingml.document" in docx_res.headers["content-type"]
-    assert docx_res.content[:4] == b"PK\x03\x04"
+    for blocked in ("docx", "srt", "vtt"):
+        res = await client.get(
+            f"/api/v1/meetings/{meeting.id}/exports/{blocked}", headers=owner.headers
+        )
+        assert res.status_code == 402, blocked
+        assert res.json()["error"]["code"] == "PLAN_FEATURE_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_pro_plan_exports_every_format(
+    client: AsyncClient, register_user: RegisterUser, make_meeting: MakeMeeting,
+    db_session: AsyncSession,
+) -> None:
+    """A Pro owner can export all formats, including via a share link guest."""
+    owner = await register_user("owner@example.com")
+    pro = await db_session.scalar(select(PlanConfigModel).where(PlanConfigModel.slug == "pro"))
+    await SubscriptionService(db_session).activate_paid_plan(owner.id, pro, utc_now())
+    meeting = await make_meeting(owner.id, share_token="guest-share-token-0123456789")
+    await seed_content(db_session, meeting.id)
+
+    srt = await client.get(f"/api/v1/meetings/{meeting.id}/exports/srt", headers=owner.headers)
+    assert "00:00:00,000 --> 00:00:12,500" in srt.text
+    assert "[Speaker 1] Xin chào mọi người" in srt.text
+
+    vtt = await client.get(f"/api/v1/meetings/{meeting.id}/exports/vtt", headers=owner.headers)
+    assert "WEBVTT" in vtt.text and "00:00:00.000 --> 00:00:12.500" in vtt.text
+
+    docx = await client.get(f"/api/v1/meetings/{meeting.id}/exports/docx", headers=owner.headers)
+    assert docx.status_code == 200
+    assert docx.content[:4] == b"PK\x03\x04"
+
+    guest_docx = await client.get(
+        f"/api/v1/meetings/{meeting.id}/exports/docx?share=guest-share-token-0123456789"
+    )
+    assert guest_docx.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_unsupported_export_format_is_rejected(
+    client: AsyncClient, register_user: RegisterUser, make_meeting: MakeMeeting
+) -> None:
+    """An unknown format yields a validation error, not a server error."""
+    owner = await register_user("owner@example.com")
+    meeting = await make_meeting(owner.id)
+    res = await client.get(f"/api/v1/meetings/{meeting.id}/exports/pdf", headers=owner.headers)
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "UNSUPPORTED_EXPORT_FORMAT"

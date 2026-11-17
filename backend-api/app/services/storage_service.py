@@ -1,68 +1,108 @@
 import os
 import uuid
+from pathlib import Path
+
 import aiofiles
 from fastapi import UploadFile
 
 from app.core.config import settings
-from app.core.security import sanitize_filename
+from app.core.errors import ValidationFailedError
+
+CHUNK_SIZE = 1024 * 1024
 
 
 class StorageService:
-    """Service handling local filesystem object storage for audio and export files."""
+    """Local filesystem object storage addressed by relative storage keys.
 
-    def __init__(self, root_dir: str | None = None) -> None:
-        self.root_dir = root_dir or settings.storage_root
-        os.makedirs(self.root_dir, exist_ok=True)
+    Callers only ever see keys such as ``<meeting_id>/<audio_file_id>.wav``.
+    Absolute paths are produced exclusively by :meth:`resolve`, which guarantees
+    the result stays inside the storage root.
+    """
 
-    async def save_upload_file(
-        self, meeting_id: uuid.UUID, file: UploadFile
+    def __init__(self, root_dir: str | None = None, max_upload_mb: int | None = None) -> None:
+        """Initialize storage.
+
+        Args:
+            root_dir: Storage root directory. Defaults to ``settings.storage_root``.
+            max_upload_mb: Upload size limit. Defaults to ``settings.max_upload_mb``.
+        """
+        self.root = Path(root_dir or settings.storage_root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.max_upload_bytes = (max_upload_mb or settings.max_upload_mb) * 1024 * 1024
+
+    def resolve(self, key: str) -> Path:
+        """Translate a storage key into an absolute path inside the root.
+
+        Args:
+            key: Relative storage key.
+
+        Returns:
+            Absolute filesystem path.
+
+        Raises:
+            ValidationFailedError: If the key would escape the storage root.
+        """
+        candidate = (self.root / key).resolve()
+        if candidate == self.root or self.root not in candidate.parents:
+            raise ValidationFailedError("Invalid storage key.", code="INVALID_STORAGE_KEY")
+        return candidate
+
+    def exists(self, key: str) -> bool:
+        """Return whether a stored file exists for the given key."""
+        try:
+            return self.resolve(key).is_file()
+        except ValidationFailedError:
+            return False
+
+    async def save_upload(
+        self, meeting_id: uuid.UUID, audio_file_id: uuid.UUID, extension: str, file: UploadFile
     ) -> tuple[str, int]:
-        """Save an uploaded file to the meeting storage directory.
+        """Stream an upload to disk, enforcing the size limit.
+
+        The file is named from generated identifiers so two uploads with the
+        same original name never overwrite each other.
 
         Args:
-            meeting_id: Target meeting UUID.
-            file: FastAPI UploadFile object.
+            meeting_id: Owning meeting.
+            audio_file_id: Identifier of the new audio file row.
+            extension: Lower-case extension including the dot.
+            file: Uploaded multipart file.
 
         Returns:
-            Tuple of relative/absolute storage path and file size in bytes.
+            Tuple of storage key and size in bytes.
+
+        Raises:
+            ValidationFailedError: With status 413 if the file exceeds the limit.
         """
-        clean_name = sanitize_filename(file.filename or f"audio_{uuid.uuid4().hex[:8]}.wav")
-        meeting_dir = os.path.join(self.root_dir, str(meeting_id))
-        os.makedirs(meeting_dir, exist_ok=True)
+        key = f"{meeting_id}/{audio_file_id}{extension}"
+        target = self.resolve(key)
+        target.parent.mkdir(parents=True, exist_ok=True)
 
-        target_path = os.path.join(meeting_dir, clean_name)
-        total_bytes = 0
+        total = 0
+        try:
+            async with aiofiles.open(target, "wb") as out_file:
+                while chunk := await file.read(CHUNK_SIZE):
+                    total += len(chunk)
+                    if total > self.max_upload_bytes:
+                        raise ValidationFailedError(
+                            f"File exceeds the {self.max_upload_bytes // (1024 * 1024)} MB upload limit.",
+                            code="UPLOAD_TOO_LARGE",
+                            status_code=413,
+                        )
+                    await out_file.write(chunk)
+        except BaseException:
+            self.delete(key)
+            raise
+        return key, total
 
-        async with aiofiles.open(target_path, "wb") as out_file:
-            while chunk := await file.read(1024 * 1024):  # 1MB chunks
-                await out_file.write(chunk)
-                total_bytes += len(chunk)
+    def read_head(self, key: str, size: int = 64) -> bytes:
+        """Read the first bytes of a stored file for content sniffing."""
+        with open(self.resolve(key), "rb") as handle:
+            return handle.read(size)
 
-        return target_path, total_bytes
-
-    async def save_bytes(
-        self, meeting_id: uuid.UUID, file_name: str, data: bytes
-    ) -> str:
-        """Save binary data to a file in the meeting directory.
-
-        Args:
-            meeting_id: Target meeting UUID.
-            file_name: Desired file name.
-            data: Binary byte contents.
-
-        Returns:
-            Absolute target file path.
-        """
-        clean_name = sanitize_filename(file_name)
-        meeting_dir = os.path.join(self.root_dir, str(meeting_id))
-        os.makedirs(meeting_dir, exist_ok=True)
-
-        target_path = os.path.join(meeting_dir, clean_name)
-        async with aiofiles.open(target_path, "wb") as out_file:
-            await out_file.write(data)
-
-        return target_path
-
-    def get_file_path(self, storage_path: str) -> str:
-        """Resolve and verify existence of stored file."""
-        return storage_path if os.path.exists(storage_path) else ""
+    def delete(self, key: str) -> None:
+        """Delete a stored file, ignoring missing files."""
+        try:
+            os.remove(self.resolve(key))
+        except (FileNotFoundError, ValidationFailedError):
+            pass

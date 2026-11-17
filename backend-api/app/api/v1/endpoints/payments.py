@@ -1,56 +1,62 @@
-from typing import Annotated, Any
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
+import secrets
+from typing import Any
 
+from fastapi import APIRouter, Header, Request, status
+
+from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
-from app.core.database import get_db_session
-from app.core.security import get_current_user
-from app.models.user import UserModel
+from app.core.errors import AuthenticationError
 from app.schemas.billing import CheckoutRequest, CheckoutResponse, OrderStatusResponse
-from app.services.payment_service import PaymentService
+from app.services.billing.payment_service import PaymentService
 
 router = APIRouter(prefix="/payments", tags=["VietQR Payments"])
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
-CurrentUser = Annotated[UserModel, Depends(get_current_user)]
+
+def verify_sepay_api_key(authorization: str | None) -> None:
+    """Validate the SePay webhook credential in constant time.
+
+    Args:
+        authorization: Raw ``Authorization`` header value, e.g. ``Apikey <key>``.
+
+    Raises:
+        AuthenticationError: If a key is configured and the header is missing or wrong.
+    """
+    expected = settings.sepay_webhook_api_key
+    if not expected:
+        return
+
+    provided = ""
+    if authorization:
+        provided = authorization.removeprefix("Apikey ").removeprefix("Bearer ").strip()
+    if not provided or not secrets.compare_digest(provided.encode(), expected.encode()):
+        raise AuthenticationError("Invalid SePay webhook API key.", code="INVALID_WEBHOOK_KEY")
 
 
 @router.post("/checkout", response_model=CheckoutResponse, status_code=status.HTTP_201_CREATED)
 async def create_vietqr_checkout(
     payload: CheckoutRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> CheckoutResponse:
     """Create a new payment order and return VietQR bank transfer instructions."""
-    service = PaymentService(db)
-    return await service.create_checkout_session(current_user, payload.plan_slug)
+    return await PaymentService(db).create_checkout_session(current_user, payload.plan_slug)
 
 
 @router.get("/orders/{order_code}", response_model=OrderStatusResponse)
 async def check_order_status(
-    order_code: str, db: DatabaseSession
+    order_code: str, current_user: CurrentUser, db: DbSession
 ) -> OrderStatusResponse:
-    """Check whether a payment order has been paid and completed."""
-    service = PaymentService(db)
-    return await service.get_order_status(order_code)
+    """Check whether one of the caller's payment orders has been paid."""
+    return await PaymentService(db).get_order_status(order_code, current_user)
 
 
 @router.post("/sepay/webhook")
 async def handle_sepay_webhook(
     request: Request,
-    db: DatabaseSession,
+    db: DbSession,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Receive and process incoming bank transfer webhooks from SePay."""
-    # Optional authorization key check if configured
-    if settings.sepay_webhook_api_key and authorization:
-        token = authorization.replace("Apikey ", "").replace("Bearer ", "").strip()
-        if token != settings.sepay_webhook_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid SePay webhook API key.",
-            )
-
+    verify_sepay_api_key(authorization)
     payload = await request.json()
-    service = PaymentService(db)
-    return await service.process_sepay_webhook(payload)
+    return await PaymentService(db).process_sepay_webhook(payload)

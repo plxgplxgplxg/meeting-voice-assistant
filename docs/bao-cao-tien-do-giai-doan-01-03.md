@@ -1,234 +1,107 @@
 # BÁO CÁO TIẾN ĐỘ GIAI ĐOẠN 01–03
 
-## HỆ THỐNG PHIÊN ÂM, TÓM TẮT VÀ HỎI ĐÁP NỘI DUNG CUỘC HỌP
+**Đề tài:** Meeting Voice Assistant  
+**Sinh viên:** Nguyễn Phương Linh — 20224871 — IT1-02  
+**GVHD:** TS. Cao Tuấn Dũng  
+**Ngày đồng bộ với code:** 16/11/2026
 
-- **Sinh viên:** Nguyễn Phương Linh — MSSV: 20224871 — Lớp: IT1-02
-- **Giảng viên hướng dẫn:** TS. Cao Tuấn Dũng
-- **Phạm vi:** Yêu cầu nghiệp vụ, nghiên cứu công nghệ và thiết kế kiến trúc hệ thống.
+## 1. Mục tiêu
 
-## 1. Mục tiêu hệ thống
+Xây dựng hệ thống web xử lý cuộc họp tiếng Việt: nhận audio, ASR/diarization, biên tập transcript, tóm tắt/action items, hỏi đáp có citation timestamp, export và tổ chức dữ liệu theo project.
 
-Meeting Voice Assistant tự động hóa quy trình lập biên bản cuộc họp tiếng Việt:
+## 2. Kết quả yêu cầu
 
-- Thu âm trực tiếp hoặc tiếp nhận tệp âm thanh có sẵn.
-- Chuyển giọng nói thành transcript có timestamp và nhãn người nói.
-- Sinh tóm tắt, quyết định chính và danh sách công việc cần làm.
-- Cho phép hỏi đáp nội dung cuộc họp, kèm trích dẫn để nghe lại đúng đoạn audio.
-- Hỗ trợ chỉnh sửa, xuất biên bản và chia sẻ theo quyền Owner/Editor/Viewer.
+- SRS xác định 10 use case chính và 5 use case phụ.
+- Phân biệt rõ `Implemented`, `Partial`, `Experimental`, `Planned`.
+- Live page hiện là thu microphone rồi xử lý batch; WebSocket chỉ mô phỏng và không thuộc acceptance.
+- Xác định các gap production: authorization tài nguyên con, fallback demo, migrations, token storage và quota boundary.
 
-## 2. Kết quả giai đoạn 01–03
+## 3. Kết quả nghiên cứu công nghệ
 
-| Giai đoạn | Kết quả chính |
+### Phương án runtime được chọn
+
+| Bài toán | Lựa chọn hiện tại |
 |---|---|
-| **01 — Requirements** | Đặc tả bài toán, 7 Use Case, nhóm quyền Owner/Editor/Viewer và luồng nghiệp vụ chính. |
-| **02 — Research Tech** | Chốt pipeline ASR hai lượt, nghiên cứu Diarization, RAG, Embedding và Cloud LLM. |
-| **03 — Architecture** | Hoàn thiện sơ đồ C4, luồng runtime, phân rã hệ thống và các nguyên tắc bảo mật. |
+| ASR + diarization | Gladia API v2 |
+| Summary/RAG generation | Gemini/OpenAI compatible client |
+| Embedding | multilingual-e5-small chạy CPU |
+| Hybrid retrieval | Lexical + embedding cosine trong memory |
+| Backend | FastAPI + SQLAlchemy async |
+| Background task | Redis + Celery |
+| Persistence | PostgreSQL 16 + shared audio volume |
+| Frontend | Next.js 14/React 18 |
 
-## 3. Mô hình Use Case và phân quyền
+Các khảo sát PhoWhisper/Pyannote/GPU được giữ làm phương án nghiên cứu, không còn là runtime implementation.
 
-~~~plantuml
-@startuml
-scale max 875 width
-skinparam defaultFontName Arial
-skinparam defaultFontSize 11
-skinparam shadowing false
-skinparam roundcorner 6
-skinparam wrapWidth 110
-skinparam packageStyle rectangle
-left to right direction
+## 4. Kết quả kiến trúc
 
-actor "Chủ cuộc họp\n(Owner)" as Owner
-actor "Người sửa\n(Editor)" as Editor
-actor "Người xem\n(Viewer)" as Viewer
-actor "AI Service" as AIService <<System>>
-actor "Cloud LLM" as LLMService <<System>>
+```mermaid
+flowchart TB
+    Browser --> Nginx
+    Nginx --> Frontend[Next.js]
+    Nginx --> Backend[FastAPI Backend]
+    Backend --> PostgreSQL
+    Backend --> Redis
+    Redis --> Worker[Celery Worker]
+    Worker --> AI[AI Service]
+    Backend --> Storage[(Audio Volume)]
+    Worker --> Storage
+    AI --> Storage
+    AI --> Gladia
+    AI --> LLM[Gemini/OpenAI]
+```
 
-rectangle "Meeting Voice Assistant" {
-    usecase "UC-01\nGhi âm & phiên âm trực tiếp" as UC01
-    usecase "UC-02\nTải tệp & tách người nói" as UC02
-    usecase "UC-03\nBiên tập biên bản" as UC03
-    usecase "UC-04\nTóm tắt & việc cần làm" as UC04
-    usecase "UC-05\nHỏi đáp có trích dẫn" as UC05
-    usecase "UC-06\nXuất biên bản" as UC06
-    usecase "UC-07\nChia sẻ & phân quyền" as UC07
-    usecase "Xác thực & phân quyền" as Auth
+- Single-host EC2 CPU, không yêu cầu GPU.
+- Request upload tách khỏi task dài.
+- Production dùng same-origin API qua Nginx.
+- Named volume bảo toàn DB/cache/audio khi restart container.
+- Healthcheck cho service production và Certbot/TLS scaffold.
 
-    UC01 ..> Auth : <<include>>
-    UC02 ..> Auth : <<include>>
-    UC03 ..> Auth : <<include>>
-    UC04 ..> Auth : <<include>>
-    UC05 ..> Auth : <<include>>
-    UC07 ..> Auth : <<include>>
-}
+## 5. Kết quả implementation liên quan
 
-Owner --> UC01
-Owner --> UC02
-Owner --> UC03
-Owner --> UC04
-Owner --> UC05
-Owner --> UC06
-Owner --> UC07
+- Auth/profile, project/member, meeting/audio.
+- Gladia pipeline, Celery orchestration, summary/action item.
+- Transcript Studio, RAG chat/citation, export.
+- Plan/quota, VietQR/SePay.
+- Production Dockerfile Next standalone; Backend/AI không chạy `--reload`.
+- Đồng bộ các contract frontend từng bị lệch: transcript, summary, chat, quota, project meetings và audio URL.
 
-Editor --> UC03
-Editor --> UC04
-Editor --> UC05
-Editor --> UC06
+## 6. Dữ liệu
 
-Viewer --> UC05
-Viewer --> UC06
+15 bảng hiện hành thuộc bốn nhóm user/project, meeting, AI và billing. Extension pgvector được bật nhưng chưa có vector column/index; retrieval vẫn in-memory. Startup dùng `create_all`, vì vậy Alembic là hạng mục P0 trước production dài hạn.
 
-UC01 --> AIService
-UC02 --> AIService
-UC04 --> LLMService
-UC05 --> LLMService
-@enduml
-~~~
+## 7. Kiểm thử
 
-## 4. Kiến trúc hệ thống tổng thể
+| Tầng | Hiện có | Còn thiếu |
+|---|---|---|
+| Backend | auth/chat/export/payment/health | project/transcript/share/quota đầy đủ |
+| AI | parser, VAD, chunking, retriever, generation, router | provider contract thật |
+| Frontend | strict type + production build | component/browser E2E |
+| Deployment | Compose config/health scaffold | E2E EC2 thật, backup restore |
+| Evaluation | metric/dataset spec | WER/DER/RAG số đo thật |
 
-~~~plantuml
-@startuml
-scale max 875 width
-skinparam defaultFontName Arial
-skinparam defaultFontSize 11
-skinparam shadowing false
-skinparam roundcorner 6
-skinparam componentStyle uml2
-skinparam linetype ortho
+## 8. Rủi ro
 
-skinparam package {
-    BackgroundColor #FAFAFA
-    BorderColor #888888
-}
-skinparam component {
-    BackgroundColor #FFFFFF
-    BorderColor #333333
-    ArrowColor #333333
-}
-skinparam database {
-    BackgroundColor #FFFFFF
-    BorderColor #333333
-}
+- Fallback demo có thể che provider/key lỗi.
+- Authorization share chưa đồng nhất cho tài nguyên con.
+- Không có Alembic migration.
+- Token trình duyệt ở localStorage.
+- Model name provider hardcode có thể hết vòng đời.
+- Audio local volume cần backup hoặc chuyển S3.
 
-package "Client" {
-    [Next.js Frontend] as FE
-    [AudioWorklet] as AW
-}
+## 9. Kế hoạch tiếp theo
 
-package "Web Layer" {
-    [Reverse Proxy] as Proxy
-    [Backend API\n(FastAPI)] as API
-    [SSE Gateway] as SSE
-}
+1. Chủ dự án lấy/điền Gladia, Gemini/OpenAI, SePay/bank và AWS/domain.
+2. Chạy full E2E thật theo runbook, lưu log/ảnh/kết quả.
+3. Hoàn thành P0 security, tắt fallback production và Alembic.
+4. Bổ sung test thiếu và browser automation.
+5. Thu dataset, tính WER/DER/citation/faithfulness và cost.
+6. Cập nhật luận văn bằng số liệu đo thực tế.
 
-package "AI Layer" {
-    [Live ASR\n(Zipformer-vi)] as LiveASR
-    [AI Worker\n(PhoWhisper + Diarization + Embedding)] as AIWorker
-}
+## 10. Tài liệu chuẩn
 
-package "Data Layer" {
-    database "PostgreSQL\n+ pgvector" as DB
-    database "Redis\nQueue & Streams" as Redis
-    database "Audio Storage" as Storage
-}
-
-cloud "Cloud LLM API" as LLM
-
-FE --> Proxy : HTTPS
-AW --> Proxy : WebSocket
-Proxy --> API : REST
-Proxy --> SSE : SSE
-Proxy --> LiveASR : Live audio
-
-API --> DB : Meeting data\n& hybrid search
-API --> Redis : Task / events
-API --> Storage : Audio files
-API --> LLM : Summary / RAG
-
-LiveASR --> Redis : Draft transcript
-AIWorker --> Redis : Progress
-AIWorker --> Storage : Read audio
-AIWorker --> DB : Segments / vectors
-@enduml
-~~~
-
-## 5. Quy trình xử lý âm thanh hai lượt
-
-~~~plantuml
-@startuml
-scale max 875 width
-skinparam defaultFontName Arial
-skinparam defaultFontSize 11
-skinparam shadowing false
-skinparam roundcorner 6
-skinparam linetype ortho
-skinparam nodesep 20
-skinparam ranksep 25
-left to right direction
-
-rectangle "1. Tiếp nhận\nUpload / thu trực tiếp" as Input
-rectangle "2. Chuẩn hóa\nWAV Mono 16 kHz" as Normalize
-rectangle "3. Pass 1 - Live ASR\nVAD + Zipformer-vi" as LiveASR
-rectangle "4. Transcript nháp\nHiển thị trong cuộc họp" as Draft
-rectangle "5. Pass 2 - Batch\nVAD + PhoWhisper" as Batch
-rectangle "6. Diarization\n+ Word-to-Speaker Alignment" as Speaker
-rectangle "7. Transcript chính thức\nEmbedding + lưu chỉ mục" as Official
-rectangle "8. Transcript Studio\nTra cứu và biên tập" as Studio
-
-Input -right-> Normalize
-Normalize -right-> LiveASR : Đang họp
-LiveASR -right-> Draft
-Draft -down-> Batch : Audio hoàn chỉnh
-Normalize -down-> Batch : Không họp
-Batch -right-> Speaker
-Speaker -right-> Official
-Official -right-> Studio
-@enduml
-~~~
-
-- **Pass 1:** ưu tiên tốc độ để hiển thị chữ trong lúc họp.
-- **Pass 2:** ưu tiên transcript chính thức, timestamp, speaker và dữ liệu cho RAG.
-
-## 6. Quy trình hỏi đáp có trích dẫn
-
-~~~plantuml
-@startuml
-scale max 875 width
-skinparam defaultFontName Arial
-skinparam defaultFontSize 11
-skinparam shadowing false
-skinparam roundcorner 6
-skinparam linetype ortho
-skinparam nodesep 20
-skinparam ranksep 25
-left to right direction
-
-rectangle "1. Người dùng\nđặt câu hỏi" as Question
-rectangle "2. Chuyển câu hỏi\nthành vector" as Embed
-rectangle "3. Hybrid Search\nDense + Lexical Search" as Search
-rectangle "4. Hợp nhất kết quả\nbằng RRF" as RRF
-rectangle "5. Chọn context liên quan\nĐưa vào Cloud LLM" as Context
-rectangle "6. Sinh câu trả lời\nkèm mã citation" as Answer
-rectangle "7. Ánh xạ citation\nSpeaker + timestamp" as Citation
-rectangle "8. Bấm citation\nNghe lại audio" as Playback
-
-Question -right-> Embed
-Embed -right-> Search
-Search -right-> RRF
-RRF -down-> Context
-Context -right-> Answer
-Answer -right-> Citation
-Citation -right-> Playback
-@enduml
-~~~
-
-## 7. Kết luận và bước tiếp theo
-
-Giai đoạn 01–03 đã hoàn thành phần yêu cầu, nghiên cứu và thiết kế kiến trúc cho hệ thống. Sản phẩm tiếp theo cần thực hiện là:
-
-1. Cập nhật sản phẩm kỳ vọng, kế hoạch thực hiện và thời gian viết quyển đồ án.
-2. Nghiên cứu speaker embedding/diarization và nguyên lý các mô hình, thư viện sẽ sử dụng.
-3. Thiết kế chi tiết API, database, giao diện và tham khảo chức năng lọc nội dung không đưa vào biên bản.
-4. Cài đặt AI Service, Backend API, Frontend và tích hợp pipeline audio với Transcript Studio.
-5. Kiểm thử ASR, diarization, RAG, phân quyền; cân nhắc xử lý nói chồng và lựa chọn nền tảng triển khai.
-
+- [SRS](01-requirements/srs.md)
+- [Use cases](01-requirements/use-cases.md)
+- [Architecture](03-architecture/system-architecture.md)
+- [ERD](04-design/database-erd.md)
+- [Runbook EC2/E2E](deployment/huong-dan-trien-khai-ec2-va-chay-end-to-end.md)

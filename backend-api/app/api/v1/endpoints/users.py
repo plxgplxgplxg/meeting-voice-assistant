@@ -1,24 +1,20 @@
-from typing import Annotated
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter
 
-from app.core.database import get_db_session
-from app.core.security import get_current_user
-from app.models.user import UserModel
+from app.api.deps import CurrentUser, DbSession
+from app.schemas.auth import TokenResponse
 from app.schemas.user import ChangePasswordRequest, UserResponse, UserUpdateRequest
+from app.services.auth_service import AuthService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
-CurrentUser = Annotated[UserModel, Depends(get_current_user)]
 
 
 @router.patch("/me", response_model=UserResponse)
 async def update_my_profile(
     payload: UserUpdateRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> UserResponse:
     """Update profile attributes for currently authenticated user."""
     service = UserService(db)
@@ -30,9 +26,9 @@ async def update_my_profile(
 async def change_my_password(
     payload: ChangePasswordRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
-) -> dict[str, str]:
-    """Change account password verifying old password."""
-    service = UserService(db)
-    await service.change_password(current_user, payload)
-    return {"message": "Password changed successfully."}
+    db: DbSession,
+) -> dict[str, str | TokenResponse]:
+    """Change the password, invalidate old tokens, and return a fresh token pair."""
+    await UserService(db).change_password(current_user, payload)
+    tokens = await AuthService(db).issue_tokens(current_user)
+    return {"message": "Password changed successfully.", "tokens": tokens}

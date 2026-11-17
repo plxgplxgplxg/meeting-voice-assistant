@@ -1,12 +1,13 @@
 # Chương 5: Thực Nghiệm, Đánh Giá & Kết Luận
 
 ## 5.1. Thiết Lập Thực Nghiệm
-Mô tả bộ dữ liệu đánh giá tiếng Việt thực tế và môi trường phần cứng thử nghiệm.
+Mô tả dataset tiếng Việt đa người nói có transcript/speaker/timestamp ground truth, provider/model/version, cấu hình EC2 và ngày chạy. Output fallback bị loại khỏi tập đánh giá.
 
 ## 5.2. Kết Quả & Đánh Giá
 - Kết quả chỉ số WER đối với nhận dạng giọng nói.
 - Kết quả chỉ số DER đối với tách người nói.
-- Đánh giá chất lượng tóm tắt và độ trung thực (Faithfulness) của cơ chế RAG.
+- Đánh giá summary/action-item, Retrieval Recall@k/MRR, citation precision/recall và faithfulness.
+- Báo cáo latency percentile, failure rate và chi phí trên mỗi giờ audio.
 
 ## 5.3. Kết Luận & Hướng Phát Triển
-Tổng kết những đóng góp chính của đề tài và định hướng hoàn thiện trong tương lai.
+Chỉ kết luận bằng số đo thực tế. Hướng phát triển ưu tiên: authorization/fallback/migration, persistent pgvector, S3 storage, live ASR thật, observability và CI/CD.

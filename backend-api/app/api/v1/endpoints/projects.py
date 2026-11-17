@@ -1,11 +1,8 @@
 import uuid
-from typing import Annotated
-from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db_session
-from app.core.security import get_current_user
-from app.models.user import UserModel
+from fastapi import APIRouter, status
+
+from app.api.deps import CurrentUser, DbSession
 from app.schemas.meeting import MeetingResponse
 from app.schemas.project import (
     AddProjectMemberRequest,
@@ -19,13 +16,11 @@ from app.services.project_service import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
-CurrentUser = Annotated[UserModel, Depends(get_current_user)]
 
 
 @router.get("", response_model=list[ProjectResponse])
 async def list_my_projects(
-    current_user: CurrentUser, db: DatabaseSession
+    current_user: CurrentUser, db: DbSession
 ) -> list[ProjectResponse]:
     """List all workspace projects where current user is owner or member."""
     service = ProjectService(db)
@@ -36,7 +31,7 @@ async def list_my_projects(
 async def create_new_project(
     payload: ProjectCreateRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> ProjectResponse:
     """Create a new workspace project."""
     service = ProjectService(db)
@@ -50,7 +45,7 @@ async def create_new_project(
 async def get_project_details(
     project_id: uuid.UUID,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> dict:
     """Retrieve detailed workspace information, member list, and linked meetings."""
     service = ProjectService(db)
@@ -70,7 +65,7 @@ async def update_project_info(
     project_id: uuid.UUID,
     payload: ProjectUpdateRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> ProjectResponse:
     """Update workspace title and description (Owner only)."""
     service = ProjectService(db)
@@ -82,7 +77,7 @@ async def update_project_info(
 async def delete_project_workspace(
     project_id: uuid.UUID,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> None:
     """Delete a workspace project (Owner only)."""
     service = ProjectService(db)
@@ -98,7 +93,7 @@ async def invite_project_member(
     project_id: uuid.UUID,
     payload: AddProjectMemberRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> ProjectMemberResponse:
     """Add a registered user to project by email (Owner or Editor)."""
     service = ProjectService(db)
@@ -111,7 +106,7 @@ async def update_member_role(
     user_id: uuid.UUID,
     payload: UpdateProjectMemberRoleRequest,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> dict[str, str]:
     """Update access role of a project member (Owner only)."""
     service = ProjectService(db)
@@ -124,7 +119,7 @@ async def remove_project_member(
     project_id: uuid.UUID,
     user_id: uuid.UUID,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> None:
     """Remove member from workspace (Owner only or self-leave)."""
     service = ProjectService(db)
@@ -136,7 +131,7 @@ async def link_meeting_to_project(
     project_id: uuid.UUID,
     meeting_id: uuid.UUID,
     current_user: CurrentUser,
-    db: DatabaseSession,
+    db: DbSession,
 ) -> dict[str, str]:
     """Associate a meeting with this project workspace."""
     service = ProjectService(db)

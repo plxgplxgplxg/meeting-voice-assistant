@@ -5,7 +5,6 @@ from app.api.v1.endpoints import (
     auth,
     chat,
     exports,
-    live_ws,
     meetings,
     payments,
     plans,
@@ -17,7 +16,6 @@ from app.api.v1.endpoints import (
 
 api_router = APIRouter(prefix="/api/v1")
 
-# Core & Auxiliary Routers
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(projects.router)
@@ -29,4 +27,10 @@ api_router.include_router(chat.router)
 api_router.include_router(exports.router)
 api_router.include_router(plans.router)
 api_router.include_router(payments.router)
-api_router.include_router(live_ws.router)
+
+# Deprecated aliases kept until the frontend moves to the nested /meetings/{id}/... routes
+api_router.include_router(audio.legacy_router)
+api_router.include_router(transcripts.legacy_router)
+api_router.include_router(summaries.legacy_router)
+api_router.include_router(chat.legacy_router)
+api_router.include_router(exports.legacy_router)

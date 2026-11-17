@@ -1,9 +1,11 @@
 import json
 import re
 from typing import Any
+
 import structlog
 
 from app.core.config import ai_settings
+from app.core.errors import ProviderError
 from app.rag.llm_client import OpenAICompatibleLLMClient
 from app.rag.protocols import LLMClientProtocol
 
@@ -66,6 +68,11 @@ class MeetingSummaryGenerator:
 
         Returns:
             Dictionary containing executive_summary, key_points, and action_items.
+
+        Raises:
+            ProviderNotConfiguredError: If the LLM provider has no credentials.
+            ProviderError: If the LLM fails or returns invalid JSON. No placeholder
+                summary is ever produced.
         """
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT_SUMMARY},
@@ -75,49 +82,21 @@ class MeetingSummaryGenerator:
             },
         ]
 
+        content = await self.llm_client.generate_chat_completion(messages, temperature=0.2)
+        content = content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.endswith("```"):
+            content = content[:-3]
         try:
-            content = await self.llm_client.generate_chat_completion(messages, temperature=0.2)
-            content = content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
             parsed = json.loads(content.strip())
-            return {
-                "executive_summary": parsed.get("executive_summary", ""),
-                "key_points": parsed.get("key_points", []),
-                "action_items": parsed.get("action_items", []),
-            }
-        except Exception as exc:
-            logger.warning(
-                "summary_generation_fallback",
-                provider=self.provider,
-                error=str(exc),
-            )
-
-        # Graceful fallback on LLM unavailability or parse error
+        except json.JSONDecodeError as exc:
+            logger.error("summary_json_invalid", provider=self.provider, error=str(exc))
+            raise ProviderError("LLM returned an invalid summary payload.") from exc
         return {
-            "executive_summary": (
-                "Phiên họp đã thảo luận tiến độ dự án, rà soát kiến trúc hệ thống "
-                "và thống nhất chuyển đổi sang mô hình API-First nhằm tối ưu tài nguyên và chi phí."
-            ),
-            "key_points": [
-                "Rà soát tiến độ và các yêu cầu kỹ thuật của hệ thống.",
-                "Thống nhất tích hợp Gladia API v2 cho nhận dạng và phân tách người nói.",
-                "Sử dụng Gemini 2.0 Flash phục vụ tóm tắt và trích xuất Action Items.",
-            ],
-            "action_items": [
-                {
-                    "description": "Cấu hình API Key Gladia và Gemini trong môi trường triển khai.",
-                    "assignee": "Nguyen Phuong Linh",
-                    "status": "pending",
-                },
-                {
-                    "description": "Kiểm thử luồng xử lý âm thanh tiếng Việt và độ trễ phản hồi.",
-                    "assignee": "Cao Tuan Dung",
-                    "status": "pending",
-                },
-            ],
+            "executive_summary": parsed.get("executive_summary", ""),
+            "key_points": parsed.get("key_points", []),
+            "action_items": parsed.get("action_items", []),
         }
 
 
@@ -175,6 +154,10 @@ class RAGAnswerGenerator:
 
         Returns:
             Dictionary with 'answer' and 'citations' list.
+
+        Raises:
+            ProviderNotConfiguredError: If the LLM provider has no credentials.
+            ProviderError: If the LLM request fails.
         """
         if not context_segments:
             return {
@@ -198,56 +181,31 @@ class RAGAnswerGenerator:
         )
         messages.append({"role": "user", "content": user_content})
 
-        try:
-            raw_answer = await self.llm_client.generate_chat_completion(messages, temperature=0.1)
-            raw_answer = raw_answer.strip()
+        raw_answer = (
+            await self.llm_client.generate_chat_completion(messages, temperature=0.1)
+        ).strip()
 
-            citations: list[dict[str, Any]] = []
-            seen_indices: set[int] = set()
+        citations: list[dict[str, Any]] = []
+        seen_indices: set[int] = set()
 
-            for match in re.finditer(r"\[S(\d+)\]", raw_answer):
-                idx = int(match.group(1)) - 1
-                if idx not in seen_indices and 0 <= idx < len(context_segments):
-                    seen_indices.add(idx)
-                    seg = context_segments[idx]
-                    citations.append({
-                        "segment_id": str(seg.get("segment_id", seg.get("id", str(idx)))),
-                        "speaker_label": seg.get("speaker", "Người nói"),
-                        "start_time": float(seg.get("start", seg.get("start_time", 0.0))),
-                        "end_time": float(seg.get("end", seg.get("end_time", 0.0))),
-                        "quote": (seg.get("text", seg.get("content", "")) or "")[:120],
-                    })
+        for match in re.finditer(r"\[S(\d+)\]", raw_answer):
+            idx = int(match.group(1)) - 1
+            if idx not in seen_indices and 0 <= idx < len(context_segments):
+                seen_indices.add(idx)
+                citations.append(self._build_citation(context_segments[idx], idx))
 
-            if not citations and "không tìm thấy" not in raw_answer.lower():
-                first_seg = context_segments[0]
-                citations.append({
-                    "segment_id": str(first_seg.get("segment_id", first_seg.get("id", "0"))),
-                    "speaker_label": first_seg.get("speaker", "Người nói"),
-                    "start_time": float(first_seg.get("start", first_seg.get("start_time", 0.0))),
-                    "end_time": float(first_seg.get("end", first_seg.get("end_time", 0.0))),
-                    "quote": (first_seg.get("text", first_seg.get("content", "")) or "")[:120],
-                })
+        if not citations and "không tìm thấy" not in raw_answer.lower():
+            citations.append(self._build_citation(context_segments[0], 0))
 
-            return {
-                "answer": raw_answer,
-                "citations": citations,
-            }
-        except Exception as exc:
-            logger.warning("rag_generation_fallback", provider=self.provider, error=str(exc))
+        return {"answer": raw_answer, "citations": citations}
 
-        # Graceful fallback on LLM unavailability
-        first_seg = context_segments[0]
-        speaker = first_seg.get("speaker", "Người nói")
-        quote = first_seg.get("text", first_seg.get("content", ""))
+    @staticmethod
+    def _build_citation(segment: dict[str, Any], index: int) -> dict[str, Any]:
+        """Convert a retrieved segment into a citation payload."""
         return {
-            "answer": f"Theo trao đổi trong cuộc họp [S01], {speaker} cho biết: \"{quote}\".",
-            "citations": [
-                {
-                    "segment_id": str(first_seg.get("segment_id", first_seg.get("id", "0"))),
-                    "speaker_label": speaker,
-                    "start_time": float(first_seg.get("start", first_seg.get("start_time", 0.0))),
-                    "end_time": float(first_seg.get("end", first_seg.get("end_time", 0.0))),
-                    "quote": (quote or "")[:120],
-                }
-            ],
+            "segment_id": str(segment.get("segment_id", segment.get("id", str(index)))),
+            "speaker_label": segment.get("speaker", "Người nói"),
+            "start_time": float(segment.get("start", segment.get("start_time", 0.0))),
+            "end_time": float(segment.get("end", segment.get("end_time", 0.0))),
+            "quote": (segment.get("text", segment.get("content", "")) or "")[:120],
         }

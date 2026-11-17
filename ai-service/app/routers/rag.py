@@ -1,14 +1,17 @@
 from typing import Any
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
-import structlog
 
-from app.rag.generator import MeetingSummaryGenerator, RAGAnswerGenerator
-from app.rag.retriever import MeetingRetriever
+import structlog
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+
+from app.core.auth import require_service_token
+from app.deps import AnswerGeneratorDep, RetrieverDep, SummaryGeneratorDep
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/rag", tags=["RAG QA"])
+router = APIRouter(
+    prefix="/rag", tags=["RAG QA"], dependencies=[Depends(require_service_token)]
+)
 
 
 class CitationItem(BaseModel):
@@ -49,12 +52,15 @@ class SummarizeResponse(BaseModel):
 
 
 @router.post("/query", response_model=RAGQueryResponse)
-async def query_meeting(payload: RAGQueryRequest) -> RAGQueryResponse:
+async def query_meeting(
+    payload: RAGQueryRequest,
+    retriever: RetrieverDep,
+    generator: AnswerGeneratorDep,
+) -> RAGQueryResponse:
     """Query meeting knowledge base using Hybrid Search (e5-small + Lexical RRF) and Gemini 2.0 Flash."""
     logger.info("rag_query_received", meeting_id=payload.meeting_id, query=payload.query, seg_count=len(payload.segments))
 
     # 1. Retrieve most relevant context segments
-    retriever = MeetingRetriever()
     matched_segments = await retriever.retrieve(
         query=payload.query,
         segments=payload.segments,
@@ -62,7 +68,6 @@ async def query_meeting(payload: RAGQueryRequest) -> RAGQueryResponse:
     )
 
     # 2. Generate answer with verifiable citations via Gemini 2.0 Flash / OpenAI
-    generator = RAGAnswerGenerator()
     result = await generator.answer_query(
         query=payload.query,
         context_segments=matched_segments,
@@ -87,10 +92,11 @@ async def query_meeting(payload: RAGQueryRequest) -> RAGQueryResponse:
 
 
 @router.post("/summarize", response_model=SummarizeResponse)
-async def summarize_meeting(payload: SummarizeRequest) -> SummarizeResponse:
+async def summarize_meeting(
+    payload: SummarizeRequest, generator: SummaryGeneratorDep
+) -> SummarizeResponse:
     """Generate structured summary and action items using Gemini 2.0 Flash or GPT-4o-mini."""
     logger.info("rag_summarize_received", meeting_id=payload.meeting_id)
-    generator = MeetingSummaryGenerator()
     result = await generator.generate_summary(payload.full_transcript)
     return SummarizeResponse(
         executive_summary=result.get("executive_summary", ""),

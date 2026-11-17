@@ -1,65 +1,67 @@
 import uuid
-from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db_session
-from app.models.summary import ActionItemModel, SummaryModel
+from fastapi import APIRouter
+
+from app.api.deps import (
+    AccessPolicy,
+    ActorDep,
+    MeetingForEdit,
+    MeetingForView,
+    SummaryServiceDep,
+)
+from app.domain.enums import Permission
 from app.schemas.summary import ActionItemResponse, ActionItemUpdate, SummaryResponse
 
-router = APIRouter(prefix="/summaries", tags=["Summaries"])
+router = APIRouter(tags=["Summaries"])
+legacy_router = APIRouter(
+    prefix="/summaries", tags=["Summaries (deprecated paths)"], deprecated=True
+)
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 
-
-@router.get("/{meeting_id}", response_model=SummaryResponse | None)
+@router.get("/meetings/{meeting_id}/summary", response_model=SummaryResponse | None)
+@legacy_router.get("/{meeting_id}", response_model=SummaryResponse | None)
 async def get_meeting_summary(
-    meeting_id: uuid.UUID, db: DatabaseSession
+    meeting: MeetingForView, service: SummaryServiceDep
 ) -> SummaryResponse | None:
     """Retrieve the AI generated summary for a meeting."""
-    result = await db.execute(
-        select(SummaryModel).where(SummaryModel.meeting_id == meeting_id)
-    )
-    summary = result.scalar_one_or_none()
+    summary = await service.get_summary(meeting.id)
     return SummaryResponse.model_validate(summary) if summary else None
 
 
-@router.get("/{meeting_id}/action-items", response_model=list[ActionItemResponse])
+@router.get("/meetings/{meeting_id}/action-items", response_model=list[ActionItemResponse])
+@legacy_router.get("/{meeting_id}/action-items", response_model=list[ActionItemResponse])
 async def list_action_items(
-    meeting_id: uuid.UUID, db: DatabaseSession
+    meeting: MeetingForView, service: SummaryServiceDep
 ) -> list[ActionItemResponse]:
     """Retrieve action items associated with a meeting."""
-    result = await db.execute(
-        select(ActionItemModel)
-        .where(ActionItemModel.meeting_id == meeting_id)
-        .order_by(ActionItemModel.created_at.asc())
-    )
-    items = result.scalars().all()
+    items = await service.list_action_items(meeting.id)
     return [ActionItemResponse.model_validate(i) for i in items]
 
 
-@router.patch("/action-items/{action_item_id}", response_model=ActionItemResponse)
+@router.patch(
+    "/meetings/{meeting_id}/action-items/{action_item_id}", response_model=ActionItemResponse
+)
 async def update_action_item(
     action_item_id: uuid.UUID,
     payload: ActionItemUpdate,
-    db: DatabaseSession,
+    meeting: MeetingForEdit,
+    service: SummaryServiceDep,
 ) -> ActionItemResponse:
-    """Update status or assignee of an action item."""
-    item = await db.get(ActionItemModel, action_item_id)
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Action item with ID '{action_item_id}' not found.",
-        )
+    """Update status, assignee, or description of an action item."""
+    item = await service.update_action_item(meeting.id, action_item_id, payload)
+    return ActionItemResponse.model_validate(item)
 
-    if payload.status is not None:
-        item.status = payload.status
-    if payload.assignee is not None:
-        item.assignee = payload.assignee
-    if payload.description is not None:
-        item.description = payload.description
 
-    db.add(item)
-    await db.commit()
+@legacy_router.patch("/action-items/{action_item_id}", response_model=ActionItemResponse)
+async def update_action_item_legacy(
+    action_item_id: uuid.UUID,
+    payload: ActionItemUpdate,
+    actor: ActorDep,
+    policy: AccessPolicy,
+    service: SummaryServiceDep,
+) -> ActionItemResponse:
+    """Deprecated: update an action item without the meeting id in the path."""
+    meeting_id = await service.get_action_item_meeting_id(action_item_id)
+    meeting = await policy.require(actor, meeting_id, Permission.EDIT)
+    item = await service.update_action_item(meeting.id, action_item_id, payload)
     return ActionItemResponse.model_validate(item)

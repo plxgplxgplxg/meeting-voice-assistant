@@ -1,9 +1,16 @@
 import uuid
-from fastapi import HTTPException, status
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from app.core.errors import (
+    ConflictError,
+    InvalidStateError,
+    NotFoundError,
+    PermissionDeniedError,
+)
+from app.domain.actor import Actor
+from app.domain.enums import Permission, ProjectRole
 from app.models.meeting import MeetingModel
 from app.models.project import ProjectMeetingModel, ProjectMemberModel, ProjectModel
 from app.models.user import UserModel
@@ -15,13 +22,25 @@ from app.schemas.project import (
     ProjectUpdateRequest,
     UpdateProjectMemberRoleRequest,
 )
+from app.services.access_policy import MeetingAccessPolicy
 
 
 class ProjectService:
     """Service handling workspace projects, member authorization, and meeting links."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        access_policy: MeetingAccessPolicy | None = None,
+    ) -> None:
+        """Initialize the service.
+
+        Args:
+            session: Active SQLAlchemy session.
+            access_policy: Policy used to authorize access to meetings being linked.
+        """
         self.session = session
+        self.access_policy = access_policy or MeetingAccessPolicy(session)
 
     async def create_project(
         self, user: UserModel, payload: ProjectCreateRequest
@@ -85,16 +104,11 @@ class ProjectService:
         """Retrieve project with authorized member check, member list, and linked meetings."""
         membership = await self._get_membership(project_id, user.id)
         if not membership:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have access to this project.",
-            )
+            raise PermissionDeniedError("You do not have access to this project.")
 
         project = await self.session.get(ProjectModel, project_id)
         if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found."
-            )
+            raise NotFoundError("Project not found.")
 
         # Get members with user profiles
         members_query = (
@@ -122,7 +136,7 @@ class ProjectService:
             .join(ProjectMeetingModel, MeetingModel.id == ProjectMeetingModel.meeting_id)
             .where(
                 ProjectMeetingModel.project_id == project_id,
-                MeetingModel.is_deleted == False,
+                MeetingModel.is_deleted.is_(False),
             )
             .order_by(MeetingModel.created_at.desc())
         )
@@ -155,23 +169,17 @@ class ProjectService:
         self, project_id: uuid.UUID, user: UserModel, payload: AddProjectMemberRequest
     ) -> ProjectMemberResponse:
         """Add a registered user to project by email (owner or editor)."""
-        await self._ensure_role(project_id, user.id, {"owner", "editor"})
+        await self._ensure_role(project_id, user.id, {ProjectRole.OWNER, ProjectRole.EDITOR})
 
         target_user = await self.session.scalar(
             select(UserModel).where(UserModel.email == payload.email)
         )
         if not target_user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User with email '{payload.email}' not found.",
-            )
+            raise NotFoundError(f"User with email '{payload.email}' not found.")
 
         existing = await self._get_membership(project_id, target_user.id)
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="User is already a member of this project.",
-            )
+            raise ConflictError("User is already a member of this project.")
 
         member = ProjectMemberModel(
             project_id=project_id,
@@ -202,14 +210,9 @@ class ProjectService:
 
         member = await self._get_membership(project_id, target_user_id)
         if not member:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Member not found."
-            )
+            raise NotFoundError("Member not found.")
         if member.role == "owner":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot modify project owner role.",
-            )
+            raise InvalidStateError("Cannot modify project owner role.")
 
         member.role = payload.role
         self.session.add(member)
@@ -226,14 +229,9 @@ class ProjectService:
 
         member = await self._get_membership(project_id, target_user_id)
         if not member:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Member not found."
-            )
+            raise NotFoundError("Member not found.")
         if member.role == "owner":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Owner cannot be removed from project.",
-            )
+            raise InvalidStateError("Owner cannot be removed from project.")
 
         await self.session.delete(member)
         await self.session.flush()
@@ -241,14 +239,26 @@ class ProjectService:
     async def add_meeting_to_project(
         self, project_id: uuid.UUID, meeting_id: uuid.UUID, user: UserModel
     ) -> ProjectMeetingModel:
-        """Link an existing meeting to a project (editor or owner)."""
-        await self._ensure_role(project_id, user.id, {"owner", "editor"})
+        """Link an existing meeting to a project.
 
-        meeting = await self.session.get(MeetingModel, meeting_id)
-        if not meeting or meeting.is_deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found."
-            )
+        The caller must be an owner or editor of the project and must also hold
+        EDIT access to the meeting, otherwise any project editor could pull an
+        arbitrary meeting into their workspace and gain access to it.
+
+        Args:
+            project_id: Target project.
+            meeting_id: Meeting to link.
+            user: Authenticated caller.
+
+        Returns:
+            Existing or newly created link.
+
+        Raises:
+            PermissionDeniedError: If the caller lacks project or meeting rights.
+            NotFoundError: If the meeting does not exist.
+        """
+        await self._ensure_role(project_id, user.id, {ProjectRole.OWNER, ProjectRole.EDITOR})
+        await self.access_policy.require(Actor(user_id=user.id), meeting_id, Permission.EDIT)
 
         existing = await self.session.scalar(
             select(ProjectMeetingModel).where(
@@ -283,14 +293,9 @@ class ProjectService:
     ) -> ProjectModel:
         project = await self.session.get(ProjectModel, project_id)
         if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found."
-            )
+            raise NotFoundError("Project not found.")
         if project.owner_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only project owner can perform this operation.",
-            )
+            raise PermissionDeniedError("Only project owner can perform this operation.")
         return project
 
     async def _ensure_role(
@@ -298,8 +303,5 @@ class ProjectService:
     ) -> ProjectMemberModel:
         membership = await self._get_membership(project_id, user_id)
         if not membership or membership.role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions for this project operation.",
-            )
+            raise PermissionDeniedError("Insufficient permissions for this project operation.")
         return membership

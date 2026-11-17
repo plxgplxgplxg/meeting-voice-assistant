@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -16,7 +17,6 @@ class MeetingCreate(MeetingBase):
 class MeetingUpdate(BaseModel):
     """Schema for updating meeting attributes."""
     title: str | None = Field(default=None, min_length=1, max_length=255)
-    status: str | None = Field(default=None, max_length=50)
 
 
 class MeetingResponse(MeetingBase):
@@ -30,6 +30,10 @@ class MeetingResponse(MeetingBase):
     share_token: str | None = None
     share_permission: str = "viewer"
     is_deleted: bool = False
+    summary_status: str = "none"
+    failure_stage: str | None = None
+    failure_reason: str | None = None
+    is_demo: bool = False
     created_at: datetime
     updated_at: datetime
 

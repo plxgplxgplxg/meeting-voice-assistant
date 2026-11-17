@@ -1,27 +1,19 @@
-import uuid
-from typing import Annotated
-from fastapi import APIRouter, Depends, Response
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Response
 
-from app.core.database import get_db_session
-from app.services.export_service import ExportService
+from app.api.deps import ExportServiceDep, MeetingForView
 
-router = APIRouter(prefix="/exports", tags=["Exports"])
-
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
+router = APIRouter(tags=["Exports"])
+legacy_router = APIRouter(prefix="/exports", tags=["Exports (deprecated paths)"], deprecated=True)
 
 
-@router.get("/{meeting_id}/{format}")
+@router.get("/meetings/{meeting_id}/exports/{format}")
+@legacy_router.get("/{meeting_id}/{format}")
 async def export_meeting_document(
-    meeting_id: uuid.UUID,
-    format: str,
-    db: DatabaseSession,
+    format: str, meeting: MeetingForView, service: ExportServiceDep
 ) -> Response:
     """Export meeting transcript and summary in DOCX, TXT, SRT, VTT, or JSON format."""
-    service = ExportService(db)
-    body, content_type, extension = await service.export_meeting(meeting_id, format)
-
-    filename = f"meeting_{str(meeting_id)[:8]}.{extension}"
+    body, content_type, extension = await service.export_meeting(meeting, format)
+    filename = f"meeting_{str(meeting.id)[:8]}.{extension}"
     return Response(
         content=body,
         media_type=content_type,

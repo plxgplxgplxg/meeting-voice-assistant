@@ -9,6 +9,7 @@ from app.models.billing import (
 from app.models.chat import ChatMessageModel, ChatSessionModel
 from app.models.meeting import MeetingModel
 from app.models.project import ProjectMeetingModel, ProjectMemberModel, ProjectModel
+from app.models.refresh_token import RefreshTokenModel
 from app.models.summary import ActionItemModel, SummaryModel
 from app.models.transcript import TranscriptSegmentModel
 from app.models.user import UserModel
@@ -30,4 +31,5 @@ __all__ = [
     "ActionItemModel",
     "ChatSessionModel",
     "ChatMessageModel",
+    "RefreshTokenModel",
 ]

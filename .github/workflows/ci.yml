@@ -7,11 +7,62 @@ on:
     branches: [ main ]
 
 jobs:
-  backend-lint-test:
+  backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: meeting_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/meeting_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/meeting_test
+    defaults:
+      run:
+        working-directory: backend-api
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend-api/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type-check domain and access policy
+        run: mypy --strict --follow-imports=silent app/domain app/services/access_policy.py
+
+      - name: Migrations apply and match the models
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Tests (PostgreSQL)
+        run: pytest tests -q
+
+  ai-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -19,34 +70,34 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff pytest
-          if [ -f backend-api/requirements.txt ]; then pip install -r backend-api/requirements.txt; fi
+        run: >-
+          pip install "fastapi" "uvicorn" "pydantic" "pydantic-settings" "httpx" "numpy"
+          "structlog" "pytest" "pytest-asyncio" "pytest-mock" "ruff"
 
-      - name: Lint with Ruff
-        run: |
-          ruff check backend-api/
+      - name: Lint
+        run: ruff check .
 
-      - name: Run Tests
-        run: |
-          pytest backend-api/tests/
+      - name: Tests
+        run: pytest -q
 
-  frontend-lint:
+  frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Dependencies
-        working-directory: ./frontend
+      - name: Install dependencies
         run: npm ci || npm install
 
-      - name: Lint & Typecheck
-        working-directory: ./frontend
-        run: npm run lint || true
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck

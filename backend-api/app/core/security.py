@@ -1,32 +1,32 @@
-import uuid
-from datetime import datetime, timedelta
-from typing import Annotated, Any
-from fastapi import Depends, HTTPException, Query, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.core.config import settings
-from app.core.database import get_db_session
+import re
+from datetime import timedelta
+from typing import Any
 
 import bcrypt
+from jose import JWTError, jwt
 
-http_bearer = HTTPBearer(auto_error=False)
+from app.core.clock import utc_now
+from app.core.config import settings
+from app.core.errors import AuthenticationError
 
-DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
+BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
 def sanitize_filename(filename: str) -> str:
-    """Sanitize uploaded filename to prevent directory traversal attacks.
+    """Reduce an uploaded filename to a safe display name.
+
+    Only used for the display name stored in the database. Files on disk are
+    named from generated identifiers, never from user input.
 
     Args:
         filename: Original file name string.
 
     Returns:
-        Sanitized file name string.
+        File name without path separators or control characters.
     """
-    return filename.replace("/", "").replace("\\", "").strip()
+    base = re.split(r"[\\/]", filename)[-1]
+    cleaned = re.sub(r"[\x00-\x1f]", "", base).strip()
+    return cleaned or "recording"
 
 
 def hash_password(password: str) -> str:
@@ -38,9 +38,8 @@ def hash_password(password: str) -> str:
     Returns:
         Hashed password string.
     """
-    pwd_bytes = password.encode("utf-8")[:72]
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
+    pwd_bytes = password.encode("utf-8")[:BCRYPT_MAX_PASSWORD_BYTES]
+    return bcrypt.hashpw(pwd_bytes, bcrypt.gensalt(rounds=settings.bcrypt_rounds)).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -54,57 +53,50 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         True if matching, False otherwise.
     """
     try:
-        plain_bytes = plain_password.encode("utf-8")[:72]
-        hash_bytes = hashed_password.encode("utf-8")
-        return bcrypt.checkpw(plain_bytes, hash_bytes)
-    except Exception:
+        plain_bytes = plain_password.encode("utf-8")[:BCRYPT_MAX_PASSWORD_BYTES]
+        return bcrypt.checkpw(plain_bytes, hashed_password.encode("utf-8"))
+    except ValueError:
         return False
 
 
-def create_access_token(
-    data: dict[str, Any], expires_delta: timedelta | None = None
-) -> str:
+def _encode_token(data: dict[str, Any], token_type: str, lifetime: timedelta) -> str:
+    now = utc_now()
+    claims = {**data, "exp": now + lifetime, "iat": now, "type": token_type}
+    return jwt.encode(claims, settings.secret_key, algorithm=settings.algorithm)
+
+
+def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     """Create a signed JWT access token.
 
     Args:
-        data: Payload dictionary to encode.
-        expires_delta: Optional custom expiration timedelta.
+        data: Payload dictionary to encode (must include ``sub``).
+        expires_delta: Optional custom lifetime.
 
     Returns:
         Encoded JWT token string.
     """
-    to_encode = data.copy()
-    now = datetime.utcnow()
-    expire = now + (
-        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
+    return _encode_token(
+        data, "access", expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    to_encode.update({"exp": expire, "iat": now, "type": "access"})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
-def create_refresh_token(
-    data: dict[str, Any], expires_delta: timedelta | None = None
-) -> str:
+def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     """Create a signed JWT refresh token.
 
     Args:
-        data: Payload dictionary to encode.
-        expires_delta: Optional custom expiration timedelta.
+        data: Payload dictionary to encode (must include ``sub`` and ``jti``).
+        expires_delta: Optional custom lifetime.
 
     Returns:
         Encoded JWT refresh token string.
     """
-    to_encode = data.copy()
-    now = datetime.utcnow()
-    expire = now + (
-        expires_delta or timedelta(days=settings.refresh_token_expire_days)
+    return _encode_token(
+        data, "refresh", expires_delta or timedelta(days=settings.refresh_token_expire_days)
     )
-    to_encode.update({"exp": expire, "iat": now, "type": "refresh"})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
 def decode_jwt_token(token: str) -> dict[str, Any]:
-    """Decode and validate a JWT token signature and expiration.
+    """Decode and validate a JWT signature and expiration.
 
     Args:
         token: JWT string to decode.
@@ -113,100 +105,12 @@ def decode_jwt_token(token: str) -> dict[str, Any]:
         Decoded payload dictionary.
 
     Raises:
-        HTTPException: If token is expired or invalid.
+        AuthenticationError: If the token is invalid or expired. The parser
+            error is deliberately not echoed to the client.
     """
     try:
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
-        return payload
+        return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {str(exc)}",
-            headers={"WWW-Authenticate": "Bearer"},
+        raise AuthenticationError(
+            "Invalid or expired token.", code="INVALID_TOKEN"
         ) from exc
-
-
-async def get_current_user_optional(
-    auth: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)],
-    db: DatabaseSession,
-) -> Any:
-    """Retrieve the authenticated user if Bearer token is provided, or None.
-
-    Args:
-        auth: HTTP authorization credentials header.
-        db: Active database session.
-
-    Returns:
-        UserModel instance or None.
-    """
-    if not auth or not auth.credentials:
-        return None
-
-    try:
-        payload = decode_jwt_token(auth.credentials)
-        user_id_str = payload.get("sub")
-        if not user_id_str:
-            return None
-        user_id = uuid.UUID(user_id_str)
-    except Exception:
-        return None
-
-    from app.models.user import UserModel
-
-    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
-    user = result.scalar_one_or_none()
-    return user if user and user.is_active else None
-
-
-async def get_current_user(
-    auth: Annotated[HTTPAuthorizationCredentials | None, Depends(http_bearer)],
-    db: DatabaseSession,
-) -> Any:
-    """Dependency ensuring the request is made by a verified, authenticated user.
-
-    Args:
-        auth: HTTP authorization credentials header.
-        db: Active database session.
-
-    Returns:
-        Authenticated UserModel instance.
-
-    Raises:
-        HTTPException: If authentication fails or account is disabled.
-    """
-    if not auth or not auth.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    payload = decode_jwt_token(auth.credentials)
-    user_id_str = payload.get("sub")
-    if not user_id_str:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token payload missing subject.",
-        )
-
-    from app.models.user import UserModel
-
-    user_id = uuid.UUID(user_id_str)
-    result = await db.execute(select(UserModel).where(UserModel.id == user_id))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User associated with token not found.",
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is deactivated.",
-        )
-
-    return user

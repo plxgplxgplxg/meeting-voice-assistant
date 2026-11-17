@@ -7,13 +7,14 @@ import { useAuth } from "@/lib/auth-context";
 import { PricingModal } from "./PricingModal";
 
 interface QuotaSummary {
+  id: string;
   plan_slug: string;
   plan_name: string;
-  total_limit_minutes: number;
-  used_minutes: number;
-  remaining_minutes: number;
-  unlimited: boolean;
   status: string;
+  current_period_end: string;
+  total_duration_limit_minutes: number;
+  used_duration_minutes: number;
+  remaining_duration_minutes: number;
 }
 
 export function QuotaBadge() {
@@ -24,17 +25,18 @@ export function QuotaBadge() {
   const fetchQuota = async () => {
     if (!user) return;
     try {
-      const data = await fetchApi<QuotaSummary>("/plans/quota/me");
+      const data = await fetchApi<QuotaSummary>("/plans/my-subscription");
       setQuota(data);
     } catch {
       // Default to free quota indicator
       setQuota({
         plan_slug: "free",
         plan_name: "Gói Miễn Phí",
-        total_limit_minutes: 60,
-        used_minutes: 0,
-        remaining_minutes: 60,
-        unlimited: false,
+        id: "fallback",
+        current_period_end: "",
+        total_duration_limit_minutes: 60,
+        used_duration_minutes: 0,
+        remaining_duration_minutes: 60,
         status: "active",
       });
     }
@@ -46,7 +48,8 @@ export function QuotaBadge() {
 
   if (!user || !quota) return null;
 
-  const isLow = !quota.unlimited && quota.remaining_minutes <= 10;
+  const isUnlimited = quota.total_duration_limit_minutes >= 10000;
+  const isLow = !isUnlimited && quota.remaining_duration_minutes <= 10;
 
   return (
     <>
@@ -57,7 +60,7 @@ export function QuotaBadge() {
       >
         <div
           className={`p-1 rounded-lg ${
-            quota.unlimited
+            isUnlimited
               ? "bg-purple-100 text-purple-700"
               : isLow
               ? "bg-amber-100 text-amber-700"
@@ -74,11 +77,12 @@ export function QuotaBadge() {
             </span>
           </div>
           <div className="text-[11px] font-medium text-slate-500">
-            {quota.unlimited ? (
+            {isUnlimited ? (
               <span>Không giới hạn</span>
             ) : (
               <span>
-                {Math.round(quota.used_minutes)}/{quota.total_limit_minutes} phút
+                {Math.round(quota.used_duration_minutes)}/
+                {quota.total_duration_limit_minutes} phút
               </span>
             )}
           </div>

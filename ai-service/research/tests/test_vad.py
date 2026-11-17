@@ -1,5 +1,6 @@
 import numpy as np
-from app.pipelines.vad import VoiceActivityDetector
+
+from research.vad import VoiceActivityDetector
 
 
 def test_vad_silence_detection() -> None:

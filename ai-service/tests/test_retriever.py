@@ -1,4 +1,5 @@
 import pytest
+
 from app.rag.retriever import MeetingRetriever, cosine_similarity
 
 

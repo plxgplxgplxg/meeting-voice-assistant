@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-meeting_intelligence}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     container_name: meeting_redis
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -37,17 +37,23 @@ services:
       dockerfile: Dockerfile
     container_name: meeting_backend_api
     restart: always
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     environment:
+      - ENVIRONMENT=development
+      - APP_DEBUG=true
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
       - REDIS_URL=redis://redis:6379/0
       - AI_SERVICE_URL=http://ai-service:8001
-      - SECRET_KEY=${SECRET_KEY:-09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7}
+      - SECRET_KEY=${SECRET_KEY:-development-only-secret-key-change-before-deploy}
+      - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN:-development-only-ai-service-token}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - MAX_UPLOAD_MB=${MAX_UPLOAD_MB:-500}
       - SEPAY_BANK_CODE=${SEPAY_BANK_CODE:-MBBank}
       - SEPAY_ACCOUNT_NUMBER=${SEPAY_ACCOUNT_NUMBER:-0987654321}
-      - SEPAY_ACCOUNT_NAME=${SEPAY_ACCOUNT_NAME:-NGUYEN PHUONG LINH}
-      - SEPAY_WEBHOOK_API_KEY=${SEPAY_WEBHOOK_API_KEY:-sepay_secret_key_demo}
+      - SEPAY_ACCOUNT_NAME=${SEPAY_ACCOUNT_NAME:-DEMO ACCOUNT HOLDER}
+      - SEPAY_WEBHOOK_API_KEY=${SEPAY_WEBHOOK_API_KEY:-development-only-sepay-key}
       - STORAGE_ROOT=/tmp/meeting_storage
     depends_on:
       postgres:
@@ -64,11 +70,14 @@ services:
       dockerfile: Dockerfile
     container_name: meeting_celery_worker
     restart: always
-    command: celery -A app.workers.celery_worker.celery_app worker --loglevel=info -c 2
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=info -c 2
     environment:
+      - ENVIRONMENT=development
+      - APP_DEBUG=true
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
       - REDIS_URL=redis://redis:6379/0
       - AI_SERVICE_URL=http://ai-service:8001
+      - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN:-development-only-ai-service-token}
       - STORAGE_ROOT=/tmp/meeting_storage
     depends_on:
       postgres:
@@ -87,9 +96,12 @@ services:
       dockerfile: Dockerfile
     container_name: meeting_ai_service
     restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     environment:
+      - ENVIRONMENT=development
+      - APP_DEBUG=true
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-meeting_intelligence}
       - REDIS_URL=redis://redis:6379/0
       - GLADIA_API_KEY=${GLADIA_API_KEY:-}
@@ -97,6 +109,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - AUDIO_PIPELINE_ENGINE=${AUDIO_PIPELINE_ENGINE:-gladia}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN:-development-only-ai-service-token}
+      - STORAGE_ROOT=/tmp/meeting_storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,14 +118,16 @@ services:
         condition: service_healthy
     volumes:
       - ./ai-service:/app
-      - meeting_storage:/tmp/meeting_storage
+      - meeting_storage:/tmp/meeting_storage:ro
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: builder
     container_name: meeting_frontend
     restart: always
+    command: pnpm run dev
     ports:
       - "3000:3000"
     environment:

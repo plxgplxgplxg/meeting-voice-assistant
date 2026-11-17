@@ -1,4 +1,6 @@
 from typing import Any
+
+import anyio.to_thread
 import numpy as np
 import structlog
 
@@ -88,13 +90,17 @@ class MeetingRetriever:
 
         # 1. Dense Scoring
         # Prepend 'query: ' for E5 query embeddings
-        query_embedding = self.embedding_provider.encode([f"query: {query}"])[0]
+        query_embedding = (
+            await anyio.to_thread.run_sync(self.embedding_provider.encode, [f"query: {query}"])
+        )[0]
 
         segment_texts = [
             f"passage: {s.get('speaker', '')}: {s.get('text', s.get('content', ''))}"
             for s in segments
         ]
-        segment_embeddings = self.embedding_provider.encode(segment_texts)
+        segment_embeddings = await anyio.to_thread.run_sync(
+            self.embedding_provider.encode, segment_texts
+        )
 
         dense_scores = [
             cosine_similarity(query_embedding, emb)

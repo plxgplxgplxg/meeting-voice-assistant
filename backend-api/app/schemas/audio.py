@@ -1,4 +1,5 @@
 import uuid
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -20,3 +21,9 @@ class AudioPlaybackResponse(BaseModel):
     stream_url: str
     mime_type: str
     duration_seconds: float
+
+
+class AudioStreamUrlResponse(BaseModel):
+    """Short-lived signed URL for streaming a meeting recording in an audio element."""
+    url: str
+    expires_at: int

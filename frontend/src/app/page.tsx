@@ -18,16 +18,27 @@ import {
 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import {
+  MeetingStatus,
+  isProcessingStatus,
+  statusBadgeClasses,
+  statusLabel,
+} from "@/lib/meeting-status";
 import { formatDuration } from "@/lib/utils";
 import { ProjectSelector, Project } from "@/components/project/ProjectSelector";
 
 interface MeetingItem {
   id: string;
   title: string;
-  status: "created" | "processing" | "completed" | "failed";
+  status: MeetingStatus;
+  is_demo?: boolean;
   duration_seconds: number;
   created_at: string;
   segments_count?: number;
+}
+
+interface ProjectDetailResponse {
+  meetings: MeetingItem[];
 }
 
 export default function MeetingsDashboard() {
@@ -49,12 +60,15 @@ export default function MeetingsDashboard() {
 
   const fetchMeetings = async () => {
     try {
-      let path = "/meetings";
       if (selectedProjectId) {
-        path = `/projects/${selectedProjectId}/meetings`;
+        const project = await fetchApi<ProjectDetailResponse>(
+          `/projects/${selectedProjectId}`
+        );
+        setMeetings(project.meetings);
+      } else {
+        const data = await fetchApi<MeetingItem[]>("/meetings");
+        setMeetings(data);
       }
-      const data = await fetchApi<MeetingItem[]>(path);
-      setMeetings(data);
     } catch {
       setMeetings([]);
     } finally {
@@ -93,6 +107,13 @@ export default function MeetingsDashboard() {
         }),
       });
 
+      if (selectedProjectId) {
+        await fetchApi(
+          `/projects/${selectedProjectId}/meetings/${newMeeting.id}`,
+          { method: "POST" }
+        );
+      }
+
       // 2. Upload audio file multipart
       const formData = new FormData();
       formData.append("file", audioFile);
@@ -117,14 +138,15 @@ export default function MeetingsDashboard() {
 
   // Filter meetings
   const filteredMeetings = meetings.filter((m) => {
-    if (statusFilter !== "all" && m.status !== statusFilter) return false;
+    if (statusFilter === "ready" && m.status !== "ready") return false;
+    if (statusFilter === "processing" && !isProcessingStatus(m.status)) return false;
     if (searchQuery.trim()) {
       return m.title.toLowerCase().includes(searchQuery.toLowerCase());
     }
     return true;
   });
 
-  const activeProcessingMeeting = meetings.find((m) => m.status === "processing");
+  const activeProcessingMeeting = meetings.find((m) => isProcessingStatus(m.status));
 
   return (
     <div className="space-y-6">
@@ -175,7 +197,7 @@ export default function MeetingsDashboard() {
                 Tiến trình đang xử lý: {activeProcessingMeeting.title}
               </h3>
               <p className="text-[11px] text-amber-800 mt-0.5">
-                Mô hình Whisper ASR & Diarization đang phân tích âm thanh trong nền
+                {statusLabel(activeProcessingMeeting.status)}
               </p>
             </div>
           </div>
@@ -206,7 +228,7 @@ export default function MeetingsDashboard() {
         <div className="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-semibold">
           {[
             { key: "all", label: "Tất Cả" },
-            { key: "completed", label: "Đã Xử Lý" },
+            { key: "ready", label: "Đã Xử Lý" },
             { key: "processing", label: "Đang Xử Lý" },
           ].map((tab) => (
             <button
@@ -257,21 +279,18 @@ export default function MeetingsDashboard() {
                   <span className="text-[11px] font-semibold text-slate-400 font-mono">
                     #{item.id.slice(0, 8)}
                   </span>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                      item.status === "completed"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : item.status === "processing"
-                        ? "bg-amber-100 text-amber-800 animate-pulse"
-                        : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    {item.status === "completed"
-                      ? "Đã Xong"
-                      : item.status === "processing"
-                      ? "Đang Phân Tích"
-                      : "Khởi Tạo"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {item.is_demo && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-violet-100 text-violet-800">
+                        Dữ Liệu Mẫu
+                      </span>
+                    )}
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${statusBadgeClasses(item.status)}`}
+                    >
+                      {statusLabel(item.status)}
+                    </span>
+                  </div>
                 </div>
 
                 <h3 className="text-sm font-bold text-slate-900 group-hover:text-emerald-700 transition line-clamp-2">

@@ -1,17 +1,21 @@
 import io
 import json
-import uuid
-from datetime import datetime
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
-from fastapi import HTTPException, status
+from docx.shared import Pt, RGBColor
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import ValidationFailedError
+from app.models.billing import PlanConfigModel
 from app.models.meeting import MeetingModel
 from app.models.summary import ActionItemModel, SummaryModel
 from app.models.transcript import TranscriptSegmentModel
+from app.services.billing.plan_service import PlanService
+from app.services.billing.subscription_service import SubscriptionService
+
+SUPPORTED_EXPORT_FORMATS = ("txt", "docx", "srt", "vtt", "json")
 
 
 def format_timestamp(seconds: float, separator: str = ":", ms_separator: str = ",") -> str:
@@ -40,29 +44,52 @@ def format_timestamp(seconds: float, separator: str = ":", ms_separator: str = "
 class ExportService:
     """Service rendering meeting transcripts and summaries in DOCX, TXT, SRT, VTT, and JSON."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        plan_service: PlanService | None = None,
+        subscription_service: SubscriptionService | None = None,
+    ) -> None:
+        """Initialize the service.
+
+        Args:
+            session: Active SQLAlchemy session.
+            plan_service: Plan gating collaborator.
+            subscription_service: Resolves the plan of the meeting owner.
+        """
         self.session = session
+        self.plan_service = plan_service or PlanService(session)
+        self.subscription_service = subscription_service or SubscriptionService(session)
 
     async def export_meeting(
-        self, meeting_id: uuid.UUID, export_type: str
+        self, meeting: MeetingModel, export_type: str
     ) -> tuple[bytes, str, str]:
         """Export meeting content in the requested format.
 
+        The format must be included in the plan of the meeting owner, so a
+        guest opening a share link can export what the owner has paid for.
+
         Args:
-            meeting_id: Target meeting UUID.
+            meeting: Meeting already authorized for viewing.
             export_type: Format string ('docx', 'txt', 'srt', 'vtt', 'json').
 
         Returns:
             Tuple of (file_bytes, media_type, file_extension).
 
         Raises:
-            HTTPException: If meeting not found or unsupported format.
+            ValidationFailedError: If the format is unsupported.
+            QuotaExceededError: If the owner's plan excludes the format.
         """
-        meeting = await self.session.get(MeetingModel, meeting_id)
-        if not meeting or meeting.is_deleted:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found."
+        normalized_type = export_type.lower().strip()
+        if normalized_type not in SUPPORTED_EXPORT_FORMATS:
+            raise ValidationFailedError(
+                f"Unsupported export type '{export_type}'. "
+                f"Supported: {', '.join(SUPPORTED_EXPORT_FORMATS)}.",
+                code="UNSUPPORTED_EXPORT_FORMAT",
             )
+        plan = await self._owner_plan(meeting)
+        self.plan_service.assert_export_format_allowed(plan, normalized_type)
+        meeting_id = meeting.id
 
         # Retrieve segments in sequence order
         seg_stmt = (
@@ -85,8 +112,6 @@ class ExportService:
         )
         action_items = list((await self.session.execute(actions_stmt)).scalars().all())
 
-        normalized_type = export_type.lower().strip()
-
         if normalized_type == "txt":
             content = self._render_txt(meeting, segments, summary, action_items)
             return content.encode("utf-8"), "text/plain; charset=utf-8", "txt"
@@ -101,7 +126,8 @@ class ExportService:
 
         if normalized_type == "json":
             content = self._render_json(meeting, segments, summary, action_items)
-            return json.dumps(content, ensure_ascii=False, indent=2).encode("utf-8"), "application/json", "json"
+            payload = json.dumps(content, ensure_ascii=False, indent=2).encode("utf-8")
+            return payload, "application/json", "json"
 
         if normalized_type == "docx":
             docx_bytes = self._render_docx(meeting, segments, summary, action_items)
@@ -111,10 +137,15 @@ class ExportService:
                 "docx",
             )
 
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported export type '{export_type}'. Supported: txt, docx, srt, vtt, json.",
-        )
+        raise AssertionError(f"Unhandled export format {normalized_type}")
+
+    async def _owner_plan(self, meeting: MeetingModel) -> PlanConfigModel:
+        if meeting.created_by is not None:
+            return (await self.subscription_service.get_current(meeting.created_by)).plan
+        free_plan = await self.plan_service.get_plan_by_slug("free")
+        if free_plan is None:
+            raise ValidationFailedError("Free plan is not configured.", code="PLAN_NOT_CONFIGURED")
+        return free_plan
 
     def _render_txt(
         self,

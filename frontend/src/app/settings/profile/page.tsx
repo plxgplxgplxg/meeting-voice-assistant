@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { User, Lock, CheckCircle2, AlertCircle, Shield } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { fetchApi } from "@/lib/api";
+import { fetchApi, storeTokens } from "@/lib/api";
 
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
@@ -29,7 +29,7 @@ export default function ProfilePage() {
 
     try {
       await fetchApi("/users/me", {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify({ full_name: fullName }),
       });
       await refreshUser();
@@ -47,13 +47,16 @@ export default function ProfilePage() {
     setIsUpdatingPassword(true);
 
     try {
-      await fetchApi("/users/me/password", {
-        method: "PUT",
+      const result = await fetchApi<{
+        tokens: { access_token: string; refresh_token: string };
+      }>("/users/me/change-password", {
+        method: "POST",
         body: JSON.stringify({
-          current_password: currentPassword,
+          old_password: currentPassword,
           new_password: newPassword,
         }),
       });
+      storeTokens(result.tokens);
       setPasswordMsg({ type: "success", text: "Đổi mật khẩu thành công." });
       setCurrentPassword("");
       setNewPassword("");

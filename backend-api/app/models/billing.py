@@ -1,11 +1,16 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.clock import utc_now
 from app.core.database import Base
+from app.domain.enums import OrderStatus, SubscriptionStatus, WebhookEventStatus
+from app.models.constraints import enum_check
 
 
 class PlanConfigModel(Base):
@@ -18,7 +23,9 @@ class PlanConfigModel(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    price_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    price_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0"), nullable=False
+    )
     currency: Mapped[str] = mapped_column(String(10), default="VND", nullable=False)
     billing_interval: Mapped[str] = mapped_column(
         String(50), default="monthly", nullable=False
@@ -30,35 +37,39 @@ class PlanConfigModel(Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utc_now, nullable=False
     )
 
 
 class SubscriptionModel(Base):
     """Database model representing an active user subscription."""
     __tablename__ = "subscriptions"
+    __table_args__ = (enum_check("status", SubscriptionStatus, "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     plan_config_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("plan_configs.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(
         String(50), default="active", nullable=False
-    )  # active, expired, cancelled
+    )  # active, expired, replaced, cancelled
     current_period_start: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utc_now, nullable=False
     )
     current_period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     plan_snapshot: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utc_now, nullable=False
     )
 
     user = relationship("UserModel", back_populates="subscriptions")
@@ -73,20 +84,30 @@ class MeetingQuotaUsageModel(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     meeting_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("meetings.id", ondelete="SET NULL"), nullable=True
     )
+    audio_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("audio_files.id", ondelete="SET NULL"),
+        unique=True,
+        nullable=True,
+    )
     duration_seconds: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     usage_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utc_now, nullable=False
     )
 
 
 class PaymentOrderModel(Base):
     """Database model representing a payment transaction order."""
     __tablename__ = "payment_orders"
+    __table_args__ = (enum_check("status", OrderStatus, "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -95,12 +116,15 @@ class PaymentOrderModel(Base):
         String(64), unique=True, index=True, nullable=False
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
     )
     plan_config_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("plan_configs.id", ondelete="CASCADE"), nullable=False
     )
-    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="VND", nullable=False)
     payment_method: Mapped[str] = mapped_column(String(50), default="sepay", nullable=False)
     status: Mapped[str] = mapped_column(
@@ -111,7 +135,7 @@ class PaymentOrderModel(Base):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utc_now, nullable=False
     )
 
     user = relationship("UserModel", back_populates="payment_orders")
@@ -121,6 +145,7 @@ class PaymentOrderModel(Base):
 class SepayWebhookEventModel(Base):
     """Database model storing incoming SePay payment webhook records."""
     __tablename__ = "sepay_webhook_events"
+    __table_args__ = (enum_check("processing_status", WebhookEventStatus, "processing_status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -133,7 +158,7 @@ class SepayWebhookEventModel(Base):
     )
     code: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
     reference_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    transfer_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    transfer_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     account_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, nullable=False
@@ -142,5 +167,5 @@ class SepayWebhookEventModel(Base):
         String(50), default="pending", nullable=False
     )  # pending, processed, ignored
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utc_now, nullable=False
     )
